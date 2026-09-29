@@ -1,5 +1,10 @@
 from app import db
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utcnow():
+    """Naive UTC so comparisons stay compatible with existing rows."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class Manufacturer(db.Model):
     __tablename__ = 'manufacturer'
@@ -9,8 +14,8 @@ class Manufacturer(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     
     # Audit fields
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
     
     def __repr__(self):
         return f'<Manufacturer: {self.name}>'

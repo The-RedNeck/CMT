@@ -1,3 +1,7 @@
+from collections import defaultdict
+from threading import Lock
+import time
+
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, current_app
 from flask_login import login_user, logout_user, login_required, current_user
 from app.models.user import User
@@ -5,10 +9,31 @@ from app import db
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField
 from wtforms.validators import DataRequired
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.utils.history import get_client_ip
 from flask_wtf.csrf import generate_csrf
 from sqlalchemy.exc import OperationalError
+
+_RATE_LOCK = Lock()
+_RATE_HITS = defaultdict(list)
+
+
+def _utcnow():
+    """Naive UTC, matching values already stored in the database."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _client_rate_limited(bucket, limit, window_seconds):
+    """In-process limit. Each Gunicorn worker keeps its own counts."""
+    now = time.monotonic()
+    with _RATE_LOCK:
+        recent = [stamp for stamp in _RATE_HITS[bucket] if now - stamp < window_seconds]
+        if len(recent) >= limit:
+            _RATE_HITS[bucket] = recent
+            return True
+        recent.append(now)
+        _RATE_HITS[bucket] = recent
+        return False
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -19,15 +44,19 @@ class LoginForm(FlaskForm):
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
     client_ip = get_client_ip()
-    print(f"Login attempt from IP: {client_ip}")
+    current_app.logger.info(f"Login attempt from IP: {client_ip}")
     
     if current_user.is_authenticated:
         return redirect(url_for('home'))
     form = LoginForm()
+    if request.method == 'POST' and _client_rate_limited(f'login:{client_ip}', 30, 60):
+        current_app.logger.warning(f"Login rate limit hit from IP: {client_ip}")
+        flash('Too many login attempts from this address. Try again in a minute.', 'danger')
+        return render_template('auth/login.html', form=form)
     if form.validate_on_submit():
         username = form.username.data
         password = form.password.data
-        print(f"Login attempt for username '{username}' from IP: {client_ip}")
+        current_app.logger.info(f"Login attempt for username '{username}' from IP: {client_ip}")
         
         # Try to query user, with automatic database migration if needed
         try:
@@ -87,7 +116,7 @@ def login():
             if not user.active:
                 flash('This account has been deactivated. Please contact an administrator.', 'danger')
                 return render_template('auth/login.html', form=form)
-            if user.locked_until and user.locked_until > datetime.utcnow():
+            if user.locked_until and user.locked_until > _utcnow():
                 flash('Account is locked. Try again later.', 'danger')
                 return render_template('auth/login.html', form=form)
             if user.check_password(form.password.data):
@@ -142,7 +171,7 @@ def login():
                     else:
                         lockout_message = f"{int(lockout_duration.total_seconds() / 86400)} day(s)"
                     
-                    user.locked_until = datetime.utcnow() + lockout_duration
+                    user.locked_until = _utcnow() + lockout_duration
                     # Only set lockout_count if the column exists
                     try:
                         user.lockout_count = lockout_count + 1

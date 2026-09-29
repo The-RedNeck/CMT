@@ -20,6 +20,44 @@ from openpyxl.utils import get_column_letter
 
 bp = Blueprint('reports', __name__, url_prefix='/reports')
 
+PAGE_SIZE = 25
+
+
+def _ilike_contains(column, term):
+    """Bound LIKE pattern. % and _ in user input stay literal."""
+    escaped = (
+        str(term)
+        .replace('\\', '\\\\')
+        .replace('%', '\\%')
+        .replace('_', '\\_')
+    )
+    return column.ilike(f'%{escaped}%', escape='\\')
+
+
+def _autosize_worksheet(worksheet, max_width=50):
+    for column in worksheet.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            if cell.value is None:
+                continue
+            max_length = max(max_length, len(str(cell.value)))
+        worksheet.column_dimensions[column_letter].width = min(max_length + 2, max_width)
+
+
+def _excel_download(dataframe, sheet_name, filename):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        dataframe.to_excel(writer, sheet_name=sheet_name, index=False)
+        _autosize_worksheet(writer.sheets[sheet_name])
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
 @bp.route('/')
 @login_required
 def dashboard():
@@ -216,7 +254,7 @@ def disposed_assets():
     
     if search:
         # Use safe parameterized queries
-        query = query.filter((Asset.name.ilike(f"%{search}%")) | (Asset.tag_number.ilike(f"%{search}%")))
+        query = query.filter(_ilike_contains(Asset.name, search) | _ilike_contains(Asset.tag_number, search))
     if department:
         query = query.join(Department).filter(Department.name == department)
     if location:
@@ -258,7 +296,7 @@ def transferred_assets():
     
     if search:
         # Use safe parameterized queries
-        query = query.filter((AssetHistory.name.ilike(f"%{search}%")) | (AssetHistory.tag_number.ilike(f"%{search}%")))
+        query = query.filter(_ilike_contains(AssetHistory.name, search) | _ilike_contains(AssetHistory.tag_number, search))
     if date_from:
         try:
             dt_from = datetime.fromisoformat(date_from)
@@ -313,7 +351,7 @@ def recent_activity():
     
     if search:
         # Use safe parameterized queries
-        query = query.filter((AssetHistory.name.ilike(f"%{search}%")) | (AssetHistory.tag_number.ilike(f"%{search}%")))
+        query = query.filter(_ilike_contains(AssetHistory.name, search) | _ilike_contains(AssetHistory.tag_number, search))
     if date_from:
         try:
             dt_from = datetime.fromisoformat(date_from)
@@ -475,7 +513,7 @@ def assets_by_location():
     date_to = request.args.get('dateTo', '').strip()
     
     # Get pagination parameters for each location
-    page_size = 25  # Assets per page per location
+    page_size = PAGE_SIZE
     
 
     
@@ -582,7 +620,7 @@ def assets_by_location_paginated(location_name, page):
     date_to = request.args.get('dateTo', '').strip()
     
     # Pagination parameters
-    page_size = 25
+    page_size = PAGE_SIZE
     offset = (page - 1) * page_size
     
 
@@ -751,40 +789,9 @@ def export_assets_by_location():
             'Updated At': asset.updated_at.strftime('%Y-%m-%d %H:%M:%S') if asset.updated_at else ''
         })
     
-    # Create DataFrame
     df = pd.DataFrame(excel_data)
-    
-    # Create Excel file in memory
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Assets by Location', index=False)
-        
-        # Auto-adjust column widths
-        worksheet = writer.sheets['Assets by Location']
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            worksheet.column_dimensions[column_letter].width = adjusted_width
-    
-    output.seek(0)
-    
-    # Generate filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'assets_by_location_{timestamp}.xlsx'
-    
-    return send_file(
-        output,
-        as_attachment=True,
-        download_name=filename,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    return _excel_download(df, 'Assets by Location', f'assets_by_location_{timestamp}.xlsx')
 
 @bp.route('/api/export-disposed-assets')
 @login_required
@@ -816,7 +823,7 @@ def export_disposed_assets():
     # Apply filters with safe parameterized queries
     if search:
         # Use safe parameterized queries
-        query = query.filter((Asset.name.ilike(f"%{search}%")) | (Asset.tag_number.ilike(f"%{search}%")))
+        query = query.filter(_ilike_contains(Asset.name, search) | _ilike_contains(Asset.tag_number, search))
     if department:
         query = query.filter(Department.name == department)
     if location:
@@ -858,40 +865,9 @@ def export_disposed_assets():
             'Created At': asset.created_at.strftime('%Y-%m-%d %H:%M:%S') if asset.created_at else ''
         })
     
-    # Create DataFrame
     df = pd.DataFrame(excel_data)
-    
-    # Create Excel file in memory
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Disposed Assets', index=False)
-        
-        # Auto-adjust column widths
-        worksheet = writer.sheets['Disposed Assets']
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            worksheet.column_dimensions[column_letter].width = adjusted_width
-    
-    output.seek(0)
-    
-    # Generate filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'disposed_assets_{timestamp}.xlsx'
-    
-    return send_file(
-        output,
-        as_attachment=True,
-        download_name=filename,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    return _excel_download(df, 'Disposed Assets', f'disposed_assets_{timestamp}.xlsx')
 
 
 

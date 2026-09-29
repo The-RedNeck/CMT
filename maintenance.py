@@ -1,5 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
+
 from app import db
+
+
+def _utcnow():
+    """Naive UTC so comparisons stay compatible with existing rows."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class Maintenance(db.Model):
     """Model for asset maintenance records"""
@@ -16,8 +22,8 @@ class Maintenance(db.Model):
     findings = db.Column(db.Text)
     recommendations = db.Column(db.Text)
     requires_followup = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
     # Relationships
     asset = db.relationship('Asset', backref=db.backref('maintenance_records', lazy=True))

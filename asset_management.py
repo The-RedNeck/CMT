@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, send_file, make_response
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, send_file, make_response, current_app
 from flask_login import login_required, current_user
 from app.models.asset import Asset, AssetHistory
 from app.models.maintenance import Maintenance
@@ -20,9 +20,94 @@ import tempfile
 import os
 from app.utils.export import export_to_excel
 from sqlalchemy import and_, or_, func
-import os
 
 bp = Blueprint('asset_management', __name__, url_prefix='/asset-management')
+
+PAGE_SIZE = 25
+
+
+def _csrf_json_error():
+    """Match the CSRF check already used by the add-* JSON endpoints.
+
+    Accepts the token from the form body or the headers Flask-WTF documents
+    for AJAX. HTML form posts are left to the form/CSRF setup those pages
+    already use.
+    """
+    from flask_wtf.csrf import validate_csrf
+    from wtforms import ValidationError
+    token = (
+        request.form.get('csrf_token')
+        or request.headers.get('X-CSRFToken')
+        or request.headers.get('X-CSRF-Token')
+    )
+    try:
+        validate_csrf(token)
+    except ValidationError:
+        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    return None
+
+
+def _ilike_contains(column, term):
+    """Bound LIKE pattern. % and _ in user input stay literal."""
+    escaped = (
+        str(term)
+        .replace('\\', '\\\\')
+        .replace('%', '\\%')
+        .replace('_', '\\_')
+    )
+    return column.ilike(f'%{escaped}%', escape='\\')
+
+
+def _delete_file(path):
+    if not path:
+        return
+    try:
+        if os.path.exists(path):
+            os.unlink(path)
+    except OSError as cleanup_error:
+        current_app.logger.warning(f"Could not delete temporary file {path}: {cleanup_error}")
+
+
+def _pdf_response(content, filename):
+    from flask import Response
+    return Response(
+        content,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+def _read_generated_pdf(temp_path, receipt_path):
+    path = receipt_path or temp_path
+    try:
+        with open(path, 'rb') as handle:
+            return handle.read()
+    finally:
+        _delete_file(temp_path)
+        if path != temp_path:
+            _delete_file(path)
+
+
+def _parse_required_price(raw):
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, 'Purchase price must be a valid number.'
+    if value < 0:
+        return None, 'Purchase price cannot be negative.'
+    return value, None
+
+
+def _parse_optional_cost(raw):
+    if raw is None or str(raw).strip() == '':
+        return None, None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, 'Cost must be a valid number.'
+    if value < 0:
+        return None, 'Cost cannot be negative.'
+    return value, None
 
 def _is_checkout_eligible(asset: Asset) -> bool:
     """
@@ -71,67 +156,37 @@ def _apply_asset_text_search_filters(query, search_term: str):
 
 def generate_and_send_checkout_receipt(asset, employee):
     """Generate checkout receipt and return as downloadable response"""
+    temp_path = None
     try:
-        # Create a temporary file for the receipt
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
             temp_path = temp_file.name
-        
-        # Generate the receipt
         receipt_path = generate_checkout_receipt(asset, employee, temp_path)
-        
-        # Read the file content
-        with open(receipt_path, 'rb') as f:
-            file_content = f.read()
-        
-        # Clean up the temporary file
-        os.unlink(receipt_path)
-        
-        # Create response with proper headers
-        from flask import Response
-        response = Response(
-            file_content,
-            mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-            }
-        )
-        return response
-        
+        file_content = _read_generated_pdf(temp_path, receipt_path)
+        temp_path = None
+        filename = f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        return _pdf_response(file_content, filename)
     except Exception as e:
-        print(f"Error generating checkout receipt: {e}")
+        current_app.logger.error(f"Error generating checkout receipt: {e}")
         return None
+    finally:
+        _delete_file(temp_path)
 
 def generate_and_send_checkin_receipt(asset, employee):
     """Generate checkin receipt and return as downloadable response"""
+    temp_path = None
     try:
-        # Create a temporary file for the receipt
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
             temp_path = temp_file.name
-        
-        # Generate the receipt
         receipt_path = generate_checkin_receipt(asset, employee, temp_path)
-        
-        # Read the file content
-        with open(receipt_path, 'rb') as f:
-            file_content = f.read()
-        
-        # Clean up the temporary file
-        os.unlink(receipt_path)
-        
-        # Create response with proper headers
-        from flask import Response
-        response = Response(
-            file_content,
-            mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-            }
-        )
-        return response
-        
+        file_content = _read_generated_pdf(temp_path, receipt_path)
+        temp_path = None
+        filename = f'checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        return _pdf_response(file_content, filename)
     except Exception as e:
-        print(f"Error generating checkin receipt: {e}")
+        current_app.logger.error(f"Error generating checkin receipt: {e}")
         return None
+    finally:
+        _delete_file(temp_path)
 
 @bp.route('/')
 @login_required
@@ -257,7 +312,7 @@ def filtered_assets():
     try:
         import traceback
         
-        print(f"[filtered_assets] API called by user: {current_user.username if current_user.is_authenticated else 'anonymous'}")
+        current_app.logger.debug(f"[filtered_assets] API called by user: {current_user.username if current_user.is_authenticated else 'anonymous'}")
         
         # Get and sanitize filter parameters
         location = sanitize_filter_value(request.args.get('location', ''))
@@ -268,7 +323,7 @@ def filtered_assets():
         date_to = validate_date_string(request.args.get('date_to', ''))
         search = sanitize_search_term(request.args.get('search', ''))
         
-        print(f"[filtered_assets] Filters - location: {location}, type: {asset_type}, status: {status}, search: {search}")
+        current_app.logger.debug(f"[filtered_assets] Filters - location: {location}, type: {asset_type}, status: {status}, search: {search}")
         
         # Build the query - use proper join syntax
         query = db.session.query(
@@ -311,9 +366,9 @@ def filtered_assets():
         query = query.order_by(Asset.tag_number.asc())
         
         # Execute query
-        print(f"[filtered_assets] Executing query...")
+        current_app.logger.debug("[filtered_assets] Executing query...")
         results = query.all()
-        print(f"[filtered_assets] Query returned {len(results)} results")
+        current_app.logger.debug(f"[filtered_assets] Query returned {len(results)} results")
         
         # Format data for DataTables
         data = []
@@ -326,7 +381,7 @@ def filtered_assets():
                 
                 # Skip if asset is None (shouldn't happen with proper joins, but safety check)
                 if asset is None:
-                    print("Warning: Found None asset in results, skipping")
+                    current_app.logger.warning("Found None asset in results, skipping")
                     continue
                 
                 # Handle employee name - combine first and last name, or show Unassigned
@@ -356,15 +411,15 @@ def filtered_assets():
                 processed_count += 1
             except Exception as e:
                 error_count += 1
-                print(f"[filtered_assets] Error processing asset result {error_count}: {e}")
-                print(f"[filtered_assets] Result tuple type: {type(result)}, length: {len(result) if hasattr(result, '__len__') else 'N/A'}")
+                current_app.logger.error(f"[filtered_assets] Error processing asset result {error_count}: {e}")
+                current_app.logger.debug(f"[filtered_assets] Result tuple type: {type(result)}, length: {len(result) if hasattr(result, '__len__') else 'N/A'}")
                 import traceback
                 traceback.print_exc()
                 # Skip this asset but continue with others
                 continue
         
-        print(f"[filtered_assets] Processed {processed_count} assets successfully, {error_count} errors")
-        print(f"[filtered_assets] Returning {len(data)} assets to client")
+        current_app.logger.debug(f"[filtered_assets] Processed {processed_count} assets successfully, {error_count} errors")
+        current_app.logger.debug(f"[filtered_assets] Returning {len(data)} assets to client")
         
         # Refresh session to keep it alive (prevent expiration during long page views)
         from flask import session
@@ -380,7 +435,7 @@ def filtered_assets():
         })
         
     except Exception as e:
-        print(f"[filtered_assets] CRITICAL ERROR: {e}")
+        current_app.logger.error(f"[filtered_assets] CRITICAL ERROR: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
@@ -435,10 +490,9 @@ def new_asset():
                 flash(f'Serial number "{serial_number}" already exists. Please choose a different serial number.', 'danger')
                 return render_template('assets/new.html', asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
             
-        try:
-            purchase_price = float(purchase_price) if purchase_price else None
-        except (TypeError, ValueError):
-            flash('Purchase price must be a valid number.', 'danger')
+        purchase_price, price_error = _parse_required_price(purchase_price)
+        if price_error:
+            flash(price_error, 'danger')
             return render_template('assets/new.html', asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
             
         try:
@@ -458,12 +512,9 @@ def new_asset():
             if not asset_name:
                 asset_name = request.form.get('name', '')
             
-            # Calculate next ID using Approach 3 from your solution
-            max_id = db.session.query(db.func.max(Asset.id)).scalar()
-            next_id = (max_id or 0) + 1
-            
+            # Create asset - let database handle auto-increment ID
+            # Note: Asset model uses sqlite_autoincrement=True to prevent ID reuse
             asset = Asset()
-            asset.id = next_id  # Explicitly set the ID
             asset.name = asset_name  # Set name from asset type
             asset.tag_number = tag_number
             asset.serial_number = serial_number
@@ -497,7 +548,7 @@ def new_asset():
                 
                 # Log IP address for audit trail
                 client_ip = get_client_ip()
-                print(f"Asset created: {asset_tag} by {current_user.username} from IP: {client_ip}")
+                current_app.logger.info(f"Asset created: {asset_tag} by {current_user.username} from IP: {client_ip}")
                 
                 # Commit the history
                 db.session.commit()
@@ -512,7 +563,7 @@ def new_asset():
                             return receipt_response
                 
             else:
-                print(f"Warning: Could not find asset with ID {asset_id} for history logging")
+                current_app.logger.warning(f"Could not find asset with ID {asset_id} for history logging")
             
             flash('Asset added successfully.', 'success')
             return redirect(url_for('asset_management.list_assets', refresh='true'))
@@ -527,11 +578,11 @@ def new_asset():
 @bp.route('/move/<int:asset_id>', methods=['GET', 'POST'])
 @login_required
 def move_asset(asset_id):
-    asset = Asset.query.get_or_404(asset_id)
-    if request.method == 'POST':
-        # Handle asset movement
-        pass
-    return render_template('asset_management/move.html', asset=asset)
+    """
+    Redirect to edit_asset - location/department transfers are handled there.
+    This route is kept for backward compatibility with existing links.
+    """
+    return redirect(url_for('asset_management.edit_asset', asset_id=asset_id))
 
 @bp.route('/checkout/<int:asset_id>', methods=['POST'])
 @login_required
@@ -561,7 +612,7 @@ def checkout_asset(asset_id):
         
         # Log IP address for audit trail
         client_ip = get_client_ip()
-        print(f"Asset checked out: {asset.tag_number} to {employee.full_name} by {current_user.username} from IP: {client_ip}")
+        current_app.logger.info(f"Asset checked out: {asset.tag_number} to {employee.full_name} by {current_user.username} from IP: {client_ip}")
         
         # Commit all changes together
         db.session.commit()
@@ -577,7 +628,7 @@ def checkout_asset(asset_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error during checkout: {str(e)}")
+        current_app.logger.error(f"Error during checkout: {str(e)}")
         flash(f'Error during checkout: {str(e)}', 'danger')
         return redirect(url_for('asset_management.list_assets'))
 
@@ -604,7 +655,7 @@ def checkin_asset(asset_id):
         
         # Log IP address for audit trail
         client_ip = get_client_ip()
-        print(f"Asset checked in: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
+        current_app.logger.info(f"Asset checked in: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
         
         # Commit all changes together
         db.session.commit()
@@ -621,18 +672,109 @@ def checkin_asset(asset_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error during check-in: {str(e)}")
+        current_app.logger.error(f"Error during check-in: {str(e)}")
         flash(f'Error during check-in: {str(e)}', 'danger')
         return redirect(url_for('asset_management.asset_detail', asset_id=asset_id))
 
 @bp.route('/audit/<int:asset_id>', methods=['GET', 'POST'])
 @login_required
 def audit_asset(asset_id):
+    """
+    Full asset audit with condition assessment, location verification,
+    and discrepancy reporting.
+    """
     asset = Asset.query.get_or_404(asset_id)
+    locations = Location.query.order_by(Location.name.asc()).all()
+    
     if request.method == 'POST':
-        # Handle asset audit
-        pass
-    return render_template('asset_management/audit.html', asset=asset)
+        try:
+            # Get audit form data
+            condition_status = request.form.get('condition_status', 'Good')
+            actual_location_id = request.form.get('actual_location_id')
+            audit_notes = request.form.get('audit_notes', '').strip()
+            asset_found = request.form.get('asset_found') == 'yes'
+            serial_verified = request.form.get('serial_verified') == 'yes'
+            
+            # Track discrepancies
+            discrepancies = []
+            
+            # Check if asset was physically found
+            if not asset_found:
+                discrepancies.append("Asset not found at expected location")
+                # Optionally update status to indicate missing
+                if asset.status not in ['Disposed', 'In Maintenance']:
+                    old_status = asset.status
+                    asset.status = 'Missing'
+                    discrepancies.append(f"Status changed from '{old_status}' to 'Missing'")
+            
+            # Check for location discrepancy
+            if actual_location_id:
+                actual_location_id = int(actual_location_id)
+                if actual_location_id != asset.location_id:
+                    old_location = asset.location.name if asset.location else 'Unknown'
+                    new_location = Location.query.get(actual_location_id)
+                    if new_location:
+                        discrepancies.append(f"Location updated from '{old_location}' to '{new_location.name}'")
+                        asset.location_id = actual_location_id
+            
+            # Check serial number verification
+            if not serial_verified and asset.serial_number:
+                discrepancies.append("Serial number could not be verified")
+            
+            # Build audit summary for description/notes
+            audit_summary_parts = []
+            audit_summary_parts.append(f"Audit Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            audit_summary_parts.append(f"Condition: {condition_status}")
+            audit_summary_parts.append(f"Asset Found: {'Yes' if asset_found else 'No'}")
+            audit_summary_parts.append(f"Serial Verified: {'Yes' if serial_verified else 'No'}")
+            
+            if discrepancies:
+                audit_summary_parts.append(f"Discrepancies: {'; '.join(discrepancies)}")
+            
+            if audit_notes:
+                audit_summary_parts.append(f"Notes: {audit_notes}")
+            
+            audit_summary = " | ".join(audit_summary_parts)
+            
+            # Update asset audit date
+            asset.last_audit_date = datetime.now()
+            
+            # Store condition in description if significant issue found
+            if condition_status in ['Poor', 'Damaged', 'Non-functional']:
+                if asset.description:
+                    asset.description = f"[{condition_status} - {datetime.now().strftime('%Y-%m-%d')}] {asset.description}"
+                else:
+                    asset.description = f"[{condition_status} - {datetime.now().strftime('%Y-%m-%d')}]"
+            
+            # Log the audit action
+            log_asset_history(asset, 'audited', changed_by=current_user.username)
+            
+            # Log IP address for audit trail
+            client_ip = get_client_ip()
+            current_app.logger.info(f"Asset audited: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
+            
+            # Commit changes
+            db.session.commit()
+            
+            # Provide feedback based on results
+            if discrepancies:
+                flash(f'Audit completed with discrepancies: {"; ".join(discrepancies)}', 'warning')
+            else:
+                flash('Audit completed successfully. No discrepancies found.', 'success')
+            
+            return redirect(url_for('asset_management.asset_detail', asset_id=asset_id))
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error during audit: {str(e)}")
+            flash(f'Error during audit: {str(e)}', 'danger')
+            return redirect(url_for('asset_management.audit_asset', asset_id=asset_id))
+    
+    # GET request - show audit form with current asset details
+    return render_template('asset_management/audit.html', 
+                          asset=asset, 
+                          locations=locations,
+                          today=datetime.now().date())
 
 # maintenance route to list all asset with In Maintenance status
 @bp.route('/maintenance')
@@ -640,7 +782,7 @@ def audit_asset(asset_id):
 def maintenance():
     # Pagination parameters
     page = request.args.get('page', 1, type=int)
-    per_page = 25
+    per_page = PAGE_SIZE
 
     # Get assets in maintenance (fresh query so list updates after remove-maintenance)
     query = Asset.query.filter_by(status='In Maintenance')
@@ -749,7 +891,7 @@ def remove_maintenance(asset_id):
                 asset.status = 'Available'
 
         except Exception as e:
-            print(f"Error determining previous status: {e}")
+            current_app.logger.error(f"Error determining previous status: {e}")
             asset.status = 'Available'
 
         # Flush so the status update is written before we add history (ensures DB sees new status)
@@ -822,7 +964,11 @@ def new_maintenance(asset_id):
         maintenance.priority = request.form['priority']
         maintenance.start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d').date()
         maintenance.end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d').date() if request.form.get('end_date') else None
-        maintenance.cost = request.form.get('cost')
+        cost, cost_error = _parse_optional_cost(request.form.get('cost'))
+        if cost_error:
+            flash(cost_error, 'danger')
+            return render_template('maintenance/new.html', asset=asset)
+        maintenance.cost = cost
         maintenance.description = request.form['description']
         maintenance.findings = request.form.get('findings')
         maintenance.recommendations = request.form.get('recommendations')
@@ -844,7 +990,14 @@ def edit_maintenance(record_id):
         maintenance.priority = request.form['priority']
         maintenance.start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d').date()
         maintenance.end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d').date() if request.form.get('end_date') else None
-        maintenance.cost = request.form.get('cost')
+        cost, cost_error = _parse_optional_cost(request.form.get('cost'))
+        if cost_error:
+            flash(cost_error, 'danger')
+            return render_template('asset_management/maintenance.html',
+                                 asset=maintenance.asset,
+                                 maintenance=maintenance,
+                                 today=datetime.now().date())
+        maintenance.cost = cost
         maintenance.description = request.form['description']
         maintenance.findings = request.form.get('findings')
         maintenance.recommendations = request.form.get('recommendations')
@@ -866,11 +1019,11 @@ def find_asset():
     query = sanitize_search_term(request.args.get('q', ''))
     if query:
         assets = Asset.query.outerjoin(Employee, Asset.current_employee_id == Employee.id).filter(
-            (Asset.tag_number.ilike(f'%{query}%')) |
-            (Asset.name.ilike(f'%{query}%')) |
-            (Asset.serial_number.ilike(f'%{query}%')) |
-            (Employee.first_name.ilike(f'%{query}%')) |
-            (Employee.last_name.ilike(f'%{query}%'))
+            _ilike_contains(Asset.tag_number, query) |
+            _ilike_contains(Asset.name, query) |
+            _ilike_contains(Asset.serial_number, query) |
+            _ilike_contains(Employee.first_name, query) |
+            _ilike_contains(Employee.last_name, query)
         ).all()
     else:
         assets = []
@@ -879,10 +1032,178 @@ def find_asset():
 @bp.route('/advanced-find', methods=['GET', 'POST'])
 @login_required
 def advanced_find():
+    """
+    Advanced search with multiple filter criteria:
+    - Asset type, location, department, status
+    - Date range (purchase date, created date)
+    - Price range
+    - Employee assignment
+    - Tag number, serial number, model number
+    """
+    # Get all options for dropdowns
+    asset_types = AssetType.query.order_by(AssetType.name.asc()).all()
+    locations = Location.query.order_by(Location.name.asc()).all()
+    departments = Department.query.order_by(Department.name.asc()).all()
+    employees = Employee.query.filter_by(is_active=True).order_by(Employee.first_name, Employee.last_name).all()
+    manufacturers = Manufacturer.query.order_by(Manufacturer.name.asc()).all()
+    
+    # Status options
+    status_options = ['Available', 'Checked Out', 'In Maintenance', 'Disposed', 'Missing']
+    
+    results = []
+    search_performed = False
+    
     if request.method == 'POST':
-        # Handle advanced search
-        pass
-    return render_template('asset_management/advanced_find.html')
+        search_performed = True
+        
+        # Get and sanitize all filter parameters
+        tag_number = sanitize_search_term(request.form.get('tag_number', ''))
+        serial_number = sanitize_search_term(request.form.get('serial_number', ''))
+        model_number = sanitize_search_term(request.form.get('model_number', ''))
+        name_search = sanitize_search_term(request.form.get('name_search', ''))
+        
+        asset_type_id = request.form.get('asset_type_id', '')
+        location_id = request.form.get('location_id', '')
+        department_id = request.form.get('department_id', '')
+        manufacturer_id = request.form.get('manufacturer_id', '')
+        status = sanitize_filter_value(request.form.get('status', ''))
+        employee_id = request.form.get('employee_id', '')
+        
+        # Date filters
+        purchase_date_from = validate_date_string(request.form.get('purchase_date_from', ''))
+        purchase_date_to = validate_date_string(request.form.get('purchase_date_to', ''))
+        created_date_from = validate_date_string(request.form.get('created_date_from', ''))
+        created_date_to = validate_date_string(request.form.get('created_date_to', ''))
+        
+        # Price filters
+        price_min = request.form.get('price_min', '')
+        price_max = request.form.get('price_max', '')
+        
+        # Build query
+        query = db.session.query(
+            Asset,
+            AssetType.name.label('asset_type_name'),
+            Location.name.label('location_name'),
+            Department.name.label('department_name'),
+            Employee.first_name.label('employee_first'),
+            Employee.last_name.label('employee_last'),
+            Manufacturer.name.label('manufacturer_name')
+        ).outerjoin(AssetType, Asset.asset_type_id == AssetType.id
+        ).outerjoin(Location, Asset.location_id == Location.id
+        ).outerjoin(Department, Asset.department_id == Department.id
+        ).outerjoin(Employee, Asset.current_employee_id == Employee.id
+        ).outerjoin(Manufacturer, Asset.manufacturer_id == Manufacturer.id)
+        
+        # Apply text search filters
+        if tag_number:
+            query = query.filter(_ilike_contains(Asset.tag_number, tag_number))
+        if serial_number:
+            query = query.filter(_ilike_contains(Asset.serial_number, serial_number))
+        if model_number:
+            query = query.filter(_ilike_contains(Asset.model_number, model_number))
+        if name_search:
+            query = query.filter(_ilike_contains(Asset.name, name_search))
+        
+        # Apply dropdown filters
+        if asset_type_id:
+            try:
+                query = query.filter(Asset.asset_type_id == int(asset_type_id))
+            except ValueError:
+                pass
+        if location_id:
+            try:
+                query = query.filter(Asset.location_id == int(location_id))
+            except ValueError:
+                pass
+        if department_id:
+            try:
+                query = query.filter(Asset.department_id == int(department_id))
+            except ValueError:
+                pass
+        if manufacturer_id:
+            try:
+                query = query.filter(Asset.manufacturer_id == int(manufacturer_id))
+            except ValueError:
+                pass
+        if status:
+            query = query.filter(Asset.status == status)
+        if employee_id:
+            try:
+                query = query.filter(Asset.current_employee_id == int(employee_id))
+            except ValueError:
+                pass
+        
+        # Apply date filters
+        if purchase_date_from:
+            try:
+                dt_from = datetime.strptime(purchase_date_from, '%Y-%m-%d').date()
+                query = query.filter(Asset.purchase_date >= dt_from)
+            except ValueError:
+                pass
+        if purchase_date_to:
+            try:
+                dt_to = datetime.strptime(purchase_date_to, '%Y-%m-%d').date()
+                query = query.filter(Asset.purchase_date <= dt_to)
+            except ValueError:
+                pass
+        if created_date_from:
+            try:
+                dt_from = datetime.fromisoformat(created_date_from)
+                query = query.filter(Asset.created_at >= dt_from)
+            except ValueError:
+                pass
+        if created_date_to:
+            try:
+                dt_to = datetime.fromisoformat(created_date_to)
+                query = query.filter(Asset.created_at <= dt_to)
+            except ValueError:
+                pass
+        
+        # Apply price filters
+        if price_min:
+            try:
+                query = query.filter(Asset.purchase_price >= float(price_min))
+            except ValueError:
+                pass
+        if price_max:
+            try:
+                query = query.filter(Asset.purchase_price <= float(price_max))
+            except ValueError:
+                pass
+        
+        # Order and execute
+        query = query.order_by(Asset.tag_number.asc())
+        raw_results = query.all()
+        
+        # Format results
+        for asset, type_name, loc_name, dept_name, emp_first, emp_last, mfr_name in raw_results:
+            employee_name = f"{emp_first} {emp_last}" if emp_first and emp_last else "Unassigned"
+            results.append({
+                'id': asset.id,
+                'tag_number': asset.tag_number,
+                'name': asset.name,
+                'serial_number': asset.serial_number or '',
+                'model_number': asset.model_number or '',
+                'status': asset.status,
+                'asset_type': type_name or '',
+                'location': loc_name or '',
+                'department': dept_name or '',
+                'employee': employee_name,
+                'manufacturer': mfr_name or '',
+                'purchase_price': asset.purchase_price,
+                'purchase_date': asset.purchase_date
+            })
+    
+    return render_template('asset_management/advanced_find.html',
+                          asset_types=asset_types,
+                          locations=locations,
+                          departments=departments,
+                          employees=employees,
+                          manufacturers=manufacturers,
+                          status_options=status_options,
+                          results=results,
+                          search_performed=search_performed,
+                          result_count=len(results))
 
 @bp.route('/bulk-assign', methods=['GET', 'POST'])
 @login_required
@@ -936,48 +1257,34 @@ def bulk_assign():
                 
             except Exception as e:
                 failed_assignments.append(f"{asset.tag_number}: {str(e)}")
-                print(f"Error assigning asset {asset.tag_number}: {e}")
+                current_app.logger.error(f"Error assigning asset {asset.tag_number}: {e}")
         
         # Commit all changes
         try:
             db.session.commit()
             
             # Generate ONE bulk checkout receipt for the newly assigned assets only
+            temp_path = None
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
                     temp_path = temp_file.name
                 
-                # Generate bulk receipt for only the assets that were just checked out
                 bulk_receipt_path = generate_bulk_checkout_receipt(assets, employee, temp_path)
+                file_content = _read_generated_pdf(temp_path, bulk_receipt_path)
+                temp_path = None
                 
-                # Read the file content
-                with open(bulk_receipt_path, 'rb') as f:
-                    file_content = f.read()
-                
-                # Clean up the temporary file
-                os.unlink(bulk_receipt_path)
-                
-                # Create success message
                 success_msg = f'Successfully checked out {assigned_count} asset(s) to {employee.full_name}.'
                 if failed_assignments:
                     success_msg += f' Failed assignments: {"; ".join(failed_assignments)}'
                 
                 flash(success_msg, 'success')
-                
-                # Return the bulk receipt as download
-                from flask import Response
-                response = Response(
-                    file_content,
-                    mimetype='application/pdf',
-                    headers={
-                        'Content-Disposition': f'attachment; filename="bulk_checkout_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-                    }
-                )
-                return response
-                
+                filename = f'bulk_checkout_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+                return _pdf_response(file_content, filename)
             except Exception as e:
-                print(f"Error generating bulk receipt: {e}")
+                current_app.logger.error(f"Error generating bulk receipt: {e}")
                 flash('Assets checked out successfully, but receipt generation failed.', 'warning')
+            finally:
+                _delete_file(temp_path)
             
             return redirect(url_for('asset_management.list_assets'))
             
@@ -1052,48 +1359,34 @@ def bulk_checkin():
                 
             except Exception as e:
                 failed_checkins.append(f"{asset.tag_number}: {str(e)}")
-                print(f"Error checking in asset {asset.tag_number}: {e}")
+                current_app.logger.error(f"Error checking in asset {asset.tag_number}: {e}")
         
         # Commit all changes
         try:
             db.session.commit()
             
             # Generate ONE bulk check-in receipt for the newly checked in assets only
+            temp_path = None
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
                     temp_path = temp_file.name
                 
-                # Generate bulk receipt for only the assets that were just checked in
                 bulk_receipt_path = generate_bulk_checkin_receipt(assets, employee, temp_path)
+                file_content = _read_generated_pdf(temp_path, bulk_receipt_path)
+                temp_path = None
                 
-                # Read the file content
-                with open(bulk_receipt_path, 'rb') as f:
-                    file_content = f.read()
-                
-                # Clean up the temporary file
-                os.unlink(bulk_receipt_path)
-                
-                # Create success message
                 success_msg = f'Successfully checked in {checked_in_count} asset(s) from {employee.full_name}.'
                 if failed_checkins:
                     success_msg += f' Failed check-ins: {"; ".join(failed_checkins)}'
                 
                 flash(success_msg, 'success')
-                
-                # Return the bulk receipt as download
-                from flask import Response
-                response = Response(
-                    file_content,
-                    mimetype='application/pdf',
-                    headers={
-                        'Content-Disposition': f'attachment; filename="bulk_checkin_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-                    }
-                )
-                return response
-                
+                filename = f'bulk_checkin_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+                return _pdf_response(file_content, filename)
             except Exception as e:
-                print(f"Error generating bulk receipt: {e}")
+                current_app.logger.error(f"Error generating bulk receipt: {e}")
                 flash('Assets checked in successfully, but receipt generation failed.', 'warning')
+            finally:
+                _delete_file(temp_path)
             
             return redirect(url_for('asset_management.list_assets'))
             
@@ -1162,13 +1455,9 @@ def maintenance_detail(maintenance_id):
 @bp.route('/api/add-asset-type', methods=['POST'])
 @login_required
 def api_add_asset_type():
-    # Validate CSRF token
-    from flask_wtf.csrf import validate_csrf
-    from wtforms import ValidationError
-    try:
-        validate_csrf(request.form.get('csrf_token'))
-    except ValidationError:
-        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     
     try:
         name = request.form.get('name')
@@ -1195,13 +1484,9 @@ def api_add_asset_type():
 @bp.route('/api/add-location', methods=['POST'])
 @login_required
 def api_add_location():
-    # Validate CSRF token
-    from flask_wtf.csrf import validate_csrf
-    from wtforms import ValidationError
-    try:
-        validate_csrf(request.form.get('csrf_token'))
-    except ValidationError:
-        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     
     try:
         name = request.form.get('name')
@@ -1228,6 +1513,10 @@ def api_add_location():
 @bp.route('/api/add-department', methods=['POST'])
 @login_required
 def api_add_department():
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
+    
     name = request.form.get('name')
     code = request.form.get('code')
     if not name or not code:
@@ -1251,13 +1540,9 @@ def api_add_department():
 @bp.route('/api/add-manufacturer', methods=['POST'])
 @login_required
 def api_add_manufacturer():
-    # Validate CSRF token
-    from flask_wtf.csrf import validate_csrf
-    from wtforms import ValidationError
-    try:
-        validate_csrf(request.form.get('csrf_token'))
-    except ValidationError:
-        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     
     name = request.form.get('name')
     description = request.form.get('description')
@@ -1387,11 +1672,11 @@ def edit_asset(asset_id):
         if not purchase_price:
             flash('Purchase price is required.', 'danger')
             return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
-        try:
-            asset.purchase_price = float(purchase_price)
-        except (TypeError, ValueError):
-            flash('Purchase price must be a valid number.', 'danger')
+        parsed_price, price_error = _parse_required_price(purchase_price)
+        if price_error:
+            flash(price_error, 'danger')
             return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
+        asset.purchase_price = parsed_price
         
         # Handle purchase date
         purchase_date = request.form.get('purchase_date')
@@ -1478,14 +1763,14 @@ def asset_history_api(asset_id):
                 }
                 result.append(record)
             except Exception as e:
-                print(f"Error processing history record {h.id}: {e}")
+                current_app.logger.error(f"Error processing history record {h.id}: {e}")
                 # Skip this record but continue with others
                 continue
         
         return jsonify(result)
         
     except Exception as e:
-        print(f"Error in asset history API: {e}")
+        current_app.logger.error(f"Error in asset history API: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Failed to load asset history'}), 500
@@ -1529,7 +1814,7 @@ def assign_asset(asset_id):
     asset = Asset.query.get_or_404(asset_id)
     if request.method == 'POST':
         # check what data we are receiving
-        print("request data: ", request.form)
+        current_app.logger.debug(f"Assign asset request data: {request.form}")
         assignee_type = request.form.get('assignee_type')
         # Get all assignee_id values and filter out empty strings
         assignee_ids = request.form.getlist('assignee_id')
@@ -1560,23 +1845,21 @@ def assign_asset(asset_id):
             # Commit all changes together
             db.session.commit()
             
-            # Generate receipt
+            temp_path = None
             try:
-                receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'receipts')
-                os.makedirs(receipts_dir, exist_ok=True)
-                output_path = os.path.join(receipts_dir, f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-                receipt_path = generate_checkout_receipt(asset, employee, output_path)
-                
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                    temp_path = temp_file.name
+                receipt_path = generate_checkout_receipt(asset, employee, temp_path)
+                file_content = _read_generated_pdf(temp_path, receipt_path)
+                temp_path = None
                 flash(f'Asset checked out to {employee.full_name} successfully.', 'success')
-                return send_file(
-                    receipt_path,
-                    as_attachment=True,
-                    download_name=os.path.basename(receipt_path),
-                    mimetype='application/pdf'
-                )
+                filename = f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+                return _pdf_response(file_content, filename)
             except Exception as e:
                 flash(f'Asset assigned but receipt generation failed: {str(e)}', 'warning')
                 return redirect(url_for('asset_management.list_assets'))
+            finally:
+                _delete_file(temp_path)
         
         elif assignee_type == 'department':
             department = Department.query.get(assignee_id)
@@ -1611,30 +1894,28 @@ def assign_asset(asset_id):
         today=datetime.now().date())
 
 @bp.route('/asset/<int:asset_id>/checkout_receipt')
+@login_required
 def generate_checkout_receipt_route(asset_id):
     """Generate and download a check-out receipt for an asset."""
     asset = Asset.query.get_or_404(asset_id)
     if not asset.current_employee:
         flash('Asset is not checked out to any employee.', 'error')
         return redirect(url_for('asset_management.asset_detail', asset_id=asset_id))
-    
-    # Create receipts directory if it doesn't exist
-    receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'receipts')
-    os.makedirs(receipts_dir, exist_ok=True)
-    
-    # Generate receipt
-    output_path = os.path.join(receipts_dir, f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-    receipt_path = generate_checkout_receipt(asset, asset.current_employee, output_path)
-    
-    # Send the file
-    return send_file(
-        receipt_path,
-        as_attachment=True,
-        download_name=os.path.basename(receipt_path),
-        mimetype='application/pdf'
-    )
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            temp_path = temp_file.name
+        receipt_path = generate_checkout_receipt(asset, asset.current_employee, temp_path)
+        file_content = _read_generated_pdf(temp_path, receipt_path)
+        temp_path = None
+        filename = f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        return _pdf_response(file_content, filename)
+    finally:
+        _delete_file(temp_path)
 
 @bp.route('/asset/<int:asset_id>/checkin_receipt')
+@login_required
 def generate_checkin_receipt_route(asset_id):
     try:
         asset = Asset.query.get_or_404(asset_id)
@@ -1678,23 +1959,19 @@ def generate_checkin_receipt_route(asset_id):
                 'error': 'Employee information not found.'
             }), 404
         
-        # Create receipts directory if it doesn't exist
-        receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'receipts')
-        os.makedirs(receipts_dir, exist_ok=True)
-        
-        # Generate receipt
-        output_path = os.path.join(receipts_dir, f'checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-        receipt_path = generate_checkin_receipt(asset, employee, output_path)
-        
-        # Send the file
-        return send_file(
-            receipt_path,
-            as_attachment=True,
-            download_name=os.path.basename(receipt_path),
-            mimetype='application/pdf'
-        )
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                temp_path = temp_file.name
+            receipt_path = generate_checkin_receipt(asset, employee, temp_path)
+            file_content = _read_generated_pdf(temp_path, receipt_path)
+            temp_path = None
+            filename = f'checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+            return _pdf_response(file_content, filename)
+        finally:
+            _delete_file(temp_path)
     except Exception as e:
-        print(f"Error generating check-in receipt: {str(e)}")
+        current_app.logger.error(f"Error generating check-in receipt: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'An unexpected error occurred while generating the receipt.'

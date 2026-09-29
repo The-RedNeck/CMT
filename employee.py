@@ -1,7 +1,14 @@
-from app import db
-from datetime import datetime
-from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime, timezone
+
 from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from app import db
+
+
+def _utcnow():
+    """Naive UTC so comparisons stay compatible with existing rows."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class Employee(UserMixin, db.Model):
     __tablename__ = 'employee'
@@ -23,8 +30,8 @@ class Employee(UserMixin, db.Model):
     termination_date = db.Column(db.Date)
     
     # Audit fields
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
     last_login = db.Column(db.DateTime)
     
     # Relationships
@@ -95,7 +102,7 @@ class EmployeeHistory(db.Model):
     last_login = db.Column(db.DateTime)
     action = db.Column(db.String(20))  # created, updated, deleted
     changed_by = db.Column(db.String(64))  # username or user id
-    changed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    changed_at = db.Column(db.DateTime, default=_utcnow)
     ip_address = db.Column(db.String(45))  # client IP address
 
     def __repr__(self):

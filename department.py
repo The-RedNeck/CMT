@@ -1,5 +1,10 @@
 from app import db
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utcnow():
+    """Naive UTC so comparisons stay compatible with existing rows."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class Department(db.Model):
     __tablename__ = 'department'
@@ -13,8 +18,8 @@ class Department(db.Model):
     budget = db.Column(db.Float)
     
     # Audit fields
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
     
     # Relationships
     manager = db.relationship('Employee', backref='managed_departments', foreign_keys=[manager_id])
