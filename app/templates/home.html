@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Home · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Overview</h1>
+  <a class="btn btn-accent" href="{{ url_for('asset_management.new_asset') }}">New asset</a>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4 col-lg"><div class="page-card p-3"><div class="text-secondary">Assets</div><div class="stat-value">{{ counts.assets }}</div></div></div>
+  <div class="col-6 col-md-4 col-lg"><div class="page-card p-3"><div class="text-secondary">Available</div><div class="stat-value">{{ counts.available }}</div></div></div>
+  <div class="col-6 col-md-4 col-lg"><div class="page-card p-3"><div class="text-secondary">Checked out</div><div class="stat-value">{{ counts.checked_out }}</div></div></div>
+  <div class="col-6 col-md-4 col-lg"><div class="page-card p-3"><div class="text-secondary">In maintenance</div><div class="stat-value">{{ counts.maintenance }}</div></div></div>
+  <div class="col-6 col-md-4 col-lg"><div class="page-card p-3"><div class="text-secondary">Employees</div><div class="stat-value">{{ counts.employees }}</div></div></div>
+</div>
+<div class="page-card p-3">
+  <h2 class="h5">Go to</h2>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.list_assets') }}">Asset list</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.index') }}">Assignments</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.bulk_assign') }}">Bulk checkout</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.find_asset') }}">Find</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('list_forms.employees') }}">Employees</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('reports.dashboard') }}">Reports</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('tag_number.generate_tags_interface') }}">Tag labels</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('administration.profile') }}">Profile</a>
+  </div>
+</div>
+{% endblock %}

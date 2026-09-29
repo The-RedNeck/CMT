@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Locations · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+  <h1 class="h3">Locations</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('list_forms.export_locations') }}">Export</a>
+    <a class="btn btn-accent" href="{{ url_for('list_forms.new_location') }}">New location</a>
+  </div>
+</div>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-8"><input class="form-control" name="q" value="{{ request.args.get('q', '') }}" placeholder="Name or code"></div>
+  <div class="col-md-4"><button class="btn btn-outline-secondary" type="submit">Search</button></div>
+</form>
+<div class="page-card p-3">
+  <table class="table mb-0">
+    <thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for location in locations %}
+      <tr>
+        <td>{{ location.code }}</td>
+        <td>{{ location.name }}</td>
+        <td>{{ 'Active' if location.is_active else 'Inactive' }}</td>
+        <td class="text-end"><a href="{{ url_for('list_forms.edit_location', id=location.id) }}">Edit</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="text-secondary">No locations.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "_pagination.html" %}
+</div>
+{% endblock %}

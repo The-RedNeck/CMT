@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Users · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+  <h1 class="h3">Users</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('administration.view_connections') }}">Connections</a>
+    <a class="btn btn-accent" href="{{ url_for('administration.create_user') }}">New user</a>
+  </div>
+</div>
+<div class="page-card p-3">
+  <table class="table mb-0">
+    <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>{{ user.username }}</td>
+        <td>{{ user.email }}</td>
+        <td>{{ 'Super admin' if user.is_super_admin else 'User' }}</td>
+        <td>{{ 'Active' if user.active else 'Inactive' }}</td>
+        <td class="text-end">
+          <a href="{{ url_for('administration.edit_user', user_id=user.id) }}">Edit</a>
+          <form class="d-inline" method="post" action="{{ url_for('administration.toggle_user_active', user_id=user.id) }}">
+            {{ toggle_form.hidden_tag() }}
+            <button class="btn btn-link btn-sm" type="submit">{{ 'Deactivate' if user.active else 'Activate' }}</button>
+          </form>
+          <form class="d-inline" method="post" action="{{ url_for('administration.delete_user', user_id=user.id) }}">
+            {{ delete_form.hidden_tag() }}
+            <button class="btn btn-link btn-sm text-danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

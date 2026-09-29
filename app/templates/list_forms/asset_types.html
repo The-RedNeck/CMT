@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Asset types · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+  <h1 class="h3">Asset types</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('list_forms.export_asset_types') }}">Export</a>
+    <a class="btn btn-accent" href="{{ url_for('list_forms.new_asset_type') }}">New type</a>
+  </div>
+</div>
+<div class="page-card p-3">
+  <table class="table mb-0">
+    <thead><tr><th>Name</th><th>Description</th><th></th></tr></thead>
+    <tbody>
+      {% for asset_type in asset_types %}
+      <tr>
+        <td>{{ asset_type.name }}</td>
+        <td>{{ asset_type.description or '' }}</td>
+        <td class="text-end"><a href="{{ url_for('list_forms.edit_asset_type', id=asset_type.id) }}">Edit</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="text-secondary">No asset types.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "_pagination.html" %}
+</div>
+{% endblock %}

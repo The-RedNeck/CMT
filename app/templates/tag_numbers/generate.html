@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Tag labels · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Tag labels</h1>
+<p class="text-secondary">Last tag seen on an asset: {{ last_tag_number }}</p>
+<form class="page-card p-4" method="post">
+  {{ form.hidden_tag() }}
+  <div class="mb-3">
+    {{ form.count.label(class="form-label") }}
+    {{ form.count(class="form-control", value=form.count.data or 6) }}
+  </div>
+  {{ form.submit(class="btn btn-accent") }}
+</form>
+{% endblock %}

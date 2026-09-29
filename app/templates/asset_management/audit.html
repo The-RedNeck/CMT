@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Audit {{ asset.tag_number }} · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Audit {{ asset.tag_number }}</h1>
+<p class="text-secondary">Recorded location: {{ asset.location.name if asset.location else 'Unknown' }}</p>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label class="form-label" for="condition_status">Condition</label>
+    <select class="form-select" id="condition_status" name="condition_status">
+      {% for option in ['Good', 'Fair', 'Poor', 'Damaged', 'Non-functional'] %}
+      <option>{{ option }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="actual_location_id">Actual location</label>
+    <select class="form-select" id="actual_location_id" name="actual_location_id">
+      {% for location in locations %}
+      <option value="{{ location.id }}" {% if asset.location_id == location.id %}selected{% endif %}>{{ location.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" id="asset_found" name="asset_found" value="yes" checked>
+    <label class="form-check-label" for="asset_found">Asset was found</label>
+  </div>
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" id="serial_verified" name="serial_verified" value="yes" checked>
+    <label class="form-check-label" for="serial_verified">Serial number verified</label>
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="audit_notes">Notes</label>
+    <textarea class="form-control" id="audit_notes" name="audit_notes" rows="3"></textarea>
+  </div>
+  <button class="btn btn-accent" type="submit">Save audit</button>
+</form>
+{% endblock %}

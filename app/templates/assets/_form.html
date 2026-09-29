@@ -1,0 +1,84 @@
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label" for="tag_number">Tag number</label>
+    <input class="form-control" id="tag_number" name="tag_number" required value="{{ asset.tag_number if asset else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="serial_number">Serial number</label>
+    <input class="form-control" id="serial_number" name="serial_number" value="{{ asset.serial_number if asset and asset.serial_number else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="asset_type_id">Asset type</label>
+    <select class="form-select" id="asset_type_id" name="asset_type_id" required>
+      <option value="">Select</option>
+      {% for item in asset_types %}
+      <option value="{{ item.id }}" {% if asset and asset.asset_type_id == item.id %}selected{% endif %}>{{ item.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="status">Status</label>
+    <select class="form-select" id="status" name="status" required>
+      {% for status in ['Available', 'Checked Out', 'In Maintenance', 'Disposed', 'Missing'] %}
+      <option value="{{ status }}" {% if asset and asset.status == status %}selected{% elif not asset and status == 'Available' %}selected{% endif %}>{{ status }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="location_id">Location</label>
+    <select class="form-select" id="location_id" name="location_id" required>
+      <option value="">Select</option>
+      {% for item in locations %}
+      <option value="{{ item.id }}" {% if asset and asset.location_id == item.id %}selected{% endif %}>{{ item.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="department_id">Department</label>
+    <select class="form-select" id="department_id" name="department_id">
+      <option value="">None</option>
+      {% for item in departments %}
+      <option value="{{ item.id }}" {% if asset and asset.department_id == item.id %}selected{% endif %}>{{ item.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="manufacturer_id">Manufacturer</label>
+    <select class="form-select" id="manufacturer_id" name="manufacturer_id">
+      <option value="">None</option>
+      {% for item in manufacturers %}
+      <option value="{{ item.id }}" {% if asset and asset.manufacturer_id == item.id %}selected{% endif %}>{{ item.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="employee_id">Employee</label>
+    <select class="form-select" id="employee_id" name="employee_id">
+      <option value="">None</option>
+      {% for item in employees %}
+      <option value="{{ item.id }}" {% if asset and asset.current_employee_id == item.id %}selected{% endif %}>{{ item.full_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="purchase_price">Purchase price</label>
+    <input class="form-control" id="purchase_price" name="purchase_price" type="number" min="0" step="0.01" required value="{{ asset.purchase_price if asset and asset.purchase_price is not none else '' }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="purchase_date">Purchase date</label>
+    <input class="form-control" id="purchase_date" name="purchase_date" type="date" value="{{ asset.purchase_date.isoformat() if asset and asset.purchase_date else '' }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="warranty_expiration">Warranty expiration</label>
+    <input class="form-control" id="warranty_expiration" name="warranty_expiration" type="date" value="{{ asset.warranty_expiration.isoformat() if asset and asset.warranty_expiration else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label" for="model_number">Model number</label>
+    <input class="form-control" id="model_number" name="model_number" value="{{ asset.model_number if asset and asset.model_number else '' }}">
+  </div>
+  <div class="col-12">
+    <label class="form-label" for="description">Description</label>
+    <textarea class="form-control" id="description" name="description" rows="3">{{ asset.description if asset and asset.description else '' }}</textarea>
+  </div>
+</div>

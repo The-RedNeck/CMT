@@ -71,26 +71,16 @@ A comprehensive Flask-based web application for enterprise asset and configurati
    pip install -r requirements.txt
    ```
 
-4. **Set up environment variables**
-   Create a `.env` file in the root directory:
-   ```env
-   FLASK_APP=app
-   FLASK_ENV=development
-   SECRET_KEY=your-secret-key-here
-   DATABASE_URL=sqlite:///cmt.db
+4. **Run the application**
+   ```bash
+   python run.py
    ```
 
-5. **Initialize the database**
-   ```bash
-   flask db upgrade
-   ```
-
-6. **Run the application**
-   ```bash
-   flask run
-   ```
+   Tables are created on startup. A local demo account is added when the database is empty: `admin` / `admin123`.
 
    The application will be available at `http://localhost:5000`
+
+   Optional environment variables: `SECRET_KEY`, `DATABASE_URL`.
 
 ### Production Deployment
 
@@ -110,28 +100,23 @@ waitress-serve --port=8000 app:create_app
 
 ```
 CMT/
-├── __init__.py              # Package initialization with model imports
-├── administration.py        # User management routes
-├── asset.py                 # Asset model definition
-├── asset_management.py      # Core asset management routes
-├── asset_type.py            # Asset type model
-├── auth.py                  # Authentication routes
-├── available_tag_number.py  # Tag number pool model
-├── department.py            # Department model
-├── employee.py              # Employee model
-├── labels.py                # Label printing utilities
-├── list_forms.py            # CRUD forms for entities
-├── location.py              # Location model
-├── maintenance.py           # Maintenance record model
-├── manufacturer.py          # Manufacturer model
-├── new.py                   # New entity creation routes
-├── reports.py               # Reporting and analytics routes
-├── search.py                # Search API endpoints
-├── tag_number.py            # Tag number generation
-├── user.py                  # User authentication model
-├── README.md                # This file
-├── BUGS.md                  # Known issues and bug analysis
-└── .gitignore               # Git ignore rules
+├── run.py                   # Development entry point
+├── app/
+│   ├── __init__.py          # Application factory
+│   ├── auth.py              # Authentication routes
+│   ├── asset_management.py  # Core asset management routes
+│   ├── administration.py    # User management routes
+│   ├── list_forms.py        # CRUD forms for entities
+│   ├── reports.py           # Reporting and analytics routes
+│   ├── search.py            # Search API endpoints
+│   ├── tag_number.py        # Tag number generation
+│   ├── models/              # SQLAlchemy models
+│   ├── utils/               # History, export, receipts, input checks
+│   └── templates/           # HTML pages
+├── tests/                   # pytest suite
+├── README.md
+├── BUGS.md
+└── requirements.txt
 ```
 
 ## API Endpoints
@@ -250,13 +235,7 @@ SQLALCHEMY_TRACK_MODIFICATIONS = False
 
 Run the test suite:
 ```bash
-# Run all tests
 pytest
-
-# Run with coverage
-pytest --cov=app --cov-report=html
-
-# Run specific test file
 pytest tests/test_assets.py
 ```
 

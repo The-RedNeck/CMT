@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ asset.tag_number }} · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h1 class="h3 mb-1">{{ asset.tag_number }}</h1>
+    <p class="text-secondary mb-0">{{ asset.name }} · {{ asset.status }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.edit_asset', asset_id=asset.id) }}">Edit</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.audit_asset', asset_id=asset.id) }}">Audit</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.new_maintenance', asset_id=asset.id) }}">Maintenance</a>
+  </div>
+</div>
+<div class="page-card p-4">
+  <dl class="row mb-0">
+    <dt class="col-sm-3">Serial</dt><dd class="col-sm-9">{{ asset.serial_number or '—' }}</dd>
+    <dt class="col-sm-3">Type</dt><dd class="col-sm-9">{{ asset.asset_type.name if asset.asset_type else '—' }}</dd>
+    <dt class="col-sm-3">Location</dt><dd class="col-sm-9">{{ asset.location.name if asset.location else '—' }}</dd>
+    <dt class="col-sm-3">Department</dt><dd class="col-sm-9">{{ asset.department.name if asset.department else '—' }}</dd>
+    <dt class="col-sm-3">Manufacturer</dt><dd class="col-sm-9">{{ asset.manufacturer.name if asset.manufacturer else '—' }}</dd>
+    <dt class="col-sm-3">Assignee</dt><dd class="col-sm-9">{{ asset.current_employee.full_name if asset.current_employee else 'Unassigned' }}</dd>
+    <dt class="col-sm-3">Purchase price</dt><dd class="col-sm-9">{{ asset.purchase_price if asset.purchase_price is not none else '—' }}</dd>
+    <dt class="col-sm-3">Last audit</dt><dd class="col-sm-9">{{ asset.last_audit_date or '—' }}</dd>
+    <dt class="col-sm-3">Description</dt><dd class="col-sm-9">{{ asset.description or '—' }}</dd>
+  </dl>
+  <div class="d-flex gap-2 mt-3">
+    {% if asset.status == 'Checked Out' %}
+    <form method="post" action="{{ url_for('asset_management.checkin_asset', asset_id=asset.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-accent" type="submit">Check in</button>
+    </form>
+    <a class="btn btn-outline-secondary" href="{{ url_for('asset_management.generate_checkout_receipt_route', asset_id=asset.id) }}">Checkout receipt</a>
+    {% endif %}
+    {% if asset.status not in ['Disposed', 'In Maintenance'] %}
+    <form method="post" action="{{ url_for('asset_management.send_to_maintenance', asset_id=asset.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-secondary" type="submit">Send to maintenance</button>
+    </form>
+    {% endif %}
+    {% if asset.status == 'In Maintenance' %}
+    <form method="post" action="{{ url_for('asset_management.remove_maintenance', asset_id=asset.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-secondary" type="submit">Return from maintenance</button>
+    </form>
+    {% endif %}
+    {% if asset.status != 'Disposed' %}
+    <form method="post" action="{{ url_for('asset_management.dispose_asset', asset_id=asset.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-danger" type="submit">Dispose</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Edit location · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Edit {{ location.name }}</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3"><label class="form-label">Name</label><input class="form-control" name="name" required value="{{ location.name }}"></div>
+  <div class="mb-3"><label class="form-label">Code</label><input class="form-control" name="code" required value="{{ location.code or '' }}"></div>
+  <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3">{{ location.description or '' }}</textarea></div>
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" name="is_active" id="is_active" {% if location.is_active %}checked{% endif %}>
+    <label class="form-check-label" for="is_active">Active</label>
+  </div>
+  <button class="btn btn-accent" type="submit">Save location</button>
+</form>
+{% endblock %}

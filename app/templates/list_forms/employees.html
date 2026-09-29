@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Employees · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+  <h1 class="h3">Employees</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('list_forms.export_employees') }}">Export</a>
+    <a class="btn btn-accent" href="{{ url_for('list_forms.new_employee') }}">New employee</a>
+  </div>
+</div>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-8"><input class="form-control" name="q" value="{{ request.args.get('q', '') }}" placeholder="Name, email, or employee ID"></div>
+  <div class="col-md-4"><button class="btn btn-outline-secondary" type="submit">Search</button></div>
+</form>
+<div class="page-card p-3">
+  <table class="table mb-0">
+    <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Department</th><th></th></tr></thead>
+    <tbody>
+      {% for employee in employees %}
+      <tr>
+        <td>{{ employee.employee_id }}</td>
+        <td>{{ employee.full_name }}</td>
+        <td>{{ employee.email }}</td>
+        <td>{{ employee.department.name if employee.department else '' }}</td>
+        <td class="text-end">
+          <a href="{{ url_for('list_forms.edit_employee', id=employee.id) }}">Edit</a>
+          <form class="d-inline" method="post" action="{{ url_for('list_forms.delete_employee', employee_id=employee.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-link btn-sm text-danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-secondary">No employees.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "_pagination.html" %}
+</div>
+{% endblock %}

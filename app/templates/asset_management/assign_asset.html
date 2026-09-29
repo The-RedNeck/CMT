@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Assign {{ asset.tag_number }} · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Assign {{ asset.tag_number }}</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label class="form-label">Assign to</label>
+    <select class="form-select" name="assignee_type" id="assignee_type">
+      <option value="employee">Employee</option>
+      <option value="department">Department</option>
+    </select>
+  </div>
+  <div class="mb-3" id="employee-field">
+    <label class="form-label">Employee</label>
+    <input class="form-control" id="employee-search" placeholder="Type a name">
+    <select class="form-select mt-2" name="assignee_id" id="employee-results"></select>
+  </div>
+  <div class="mb-3 d-none" id="department-field">
+    <label class="form-label">Department</label>
+    <select class="form-select" name="assignee_id">
+      {% for item in department_data %}
+      <option value="{{ item.id }}">{{ item.text }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Notes</label>
+    <textarea class="form-control" name="notes" rows="2"></textarea>
+  </div>
+  <button class="btn btn-accent" type="submit">Assign</button>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+const typeSelect = document.getElementById('assignee_type');
+const employeeField = document.getElementById('employee-field');
+const departmentField = document.getElementById('department-field');
+typeSelect.addEventListener('change', () => {
+  const employee = typeSelect.value === 'employee';
+  employeeField.classList.toggle('d-none', !employee);
+  departmentField.classList.toggle('d-none', employee);
+  employeeField.querySelector('select').disabled = !employee;
+  departmentField.querySelector('select').disabled = employee;
+});
+departmentField.querySelector('select').disabled = true;
+const search = document.getElementById('employee-search');
+const results = document.getElementById('employee-results');
+search.addEventListener('input', async () => {
+  const response = await fetch(`{{ url_for('search.search_employees') }}?q=${encodeURIComponent(search.value)}`);
+  const people = await response.json();
+  results.innerHTML = people.map(person => `<option value="${person.id}">${person.text}</option>`).join('');
+});
+</script>
+{% endblock %}

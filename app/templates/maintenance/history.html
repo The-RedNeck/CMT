@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Maintenance history · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+  <h1 class="h3">Maintenance history · {{ asset.tag_number }}</h1>
+  <a class="btn btn-accent" href="{{ url_for('asset_management.new_maintenance', asset_id=asset.id) }}">Add record</a>
+</div>
+<div class="page-card p-3">
+  <table class="table mb-0">
+    <thead><tr><th>Type</th><th>Priority</th><th>Start</th><th>Cost</th><th></th></tr></thead>
+    <tbody>
+      {% for record in maintenance_records %}
+      <tr>
+        <td>{{ record.maintenance_type }}</td>
+        <td>{{ record.priority }}</td>
+        <td>{{ record.start_date }}</td>
+        <td>{{ record.cost if record.cost is not none else '—' }}</td>
+        <td><a href="{{ url_for('asset_management.edit_maintenance', record_id=record.id) }}">Edit</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-secondary">No maintenance records.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

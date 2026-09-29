@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Find asset · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Find an asset</h1>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-8"><input class="form-control" name="q" value="{{ query or '' }}" placeholder="Tag, name, or serial"></div>
+  <div class="col-md-4"><button class="btn btn-accent" type="submit">Search</button></div>
+</form>
+<div class="page-card p-3">
+  <ul class="list-group list-group-flush">
+    {% for asset in assets %}
+    <li class="list-group-item">
+      <a href="{{ url_for('asset_management.asset_detail', asset_id=asset.id) }}">{{ asset.tag_number }}</a>
+      — {{ asset.name }} ({{ asset.status }})
+    </li>
+    {% else %}
+    <li class="list-group-item text-secondary">No matches.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

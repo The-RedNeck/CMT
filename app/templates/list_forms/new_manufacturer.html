@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Manufacturer · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{% if manufacturer is defined and manufacturer %}Edit {{ manufacturer.name }}{% else %}New manufacturer{% endif %}</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3"><label class="form-label">Name</label><input class="form-control" name="name" required value="{{ manufacturer.name if manufacturer is defined and manufacturer else '' }}"></div>
+  <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3">{{ manufacturer.description if manufacturer is defined and manufacturer and manufacturer.description else '' }}</textarea></div>
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" name="is_active" id="is_active" {% if manufacturer is not defined or not manufacturer or manufacturer.is_active %}checked{% endif %}>
+    <label class="form-check-label" for="is_active">Active</label>
+  </div>
+  <button class="btn btn-accent" type="submit">Save manufacturer</button>
+</form>
+{% endblock %}

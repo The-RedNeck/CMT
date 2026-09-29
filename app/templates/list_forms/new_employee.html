@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{% if employee %}Edit employee{% else %}New employee{% endif %} · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{% if employee %}Edit {{ employee.full_name }}{% else %}New employee{% endif %}</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3">
+    <div class="col-md-4"><label class="form-label">Employee ID</label><input class="form-control" name="employee_id" required value="{{ employee.employee_id if employee else '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Username</label><input class="form-control" name="username" value="{{ employee.username if employee else '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Email</label><input class="form-control" type="email" name="email" required value="{{ employee.email if employee else '' }}"></div>
+    <div class="col-md-6"><label class="form-label">First name</label><input class="form-control" name="first_name" required value="{{ employee.first_name if employee else '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Last name</label><input class="form-control" name="last_name" required value="{{ employee.last_name if employee else '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Title</label><input class="form-control" name="title" value="{{ employee.title if employee and employee.title else '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Phone</label><input class="form-control" name="phone" value="{{ employee.phone if employee and employee.phone else '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Mobile</label><input class="form-control" name="mobile" value="{{ employee.mobile if employee and employee.mobile else '' }}"></div>
+    <div class="col-md-6">
+      <label class="form-label">Department</label>
+      <select class="form-select" name="department_id">
+        <option value="">None</option>
+        {% for value, label in department_options %}
+        <option value="{{ value }}" {% if employee and employee.department_id == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Location</label>
+      <select class="form-select" name="location_id">
+        <option value="">None</option>
+        {% for value, label in location_options %}
+        <option value="{{ value }}" {% if employee and employee.location_id == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3"><label class="form-label">Hire date</label><input class="form-control" type="date" name="hire_date" value="{{ employee.hire_date.isoformat() if employee and employee.hire_date else '' }}"></div>
+    <div class="col-md-3"><label class="form-label">Termination date</label><input class="form-control" type="date" name="termination_date" value="{{ employee.termination_date.isoformat() if employee and employee.termination_date else '' }}"></div>
+    {% if employee %}
+    <div class="col-12">
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" name="is_active" id="is_active" {% if employee.is_active %}checked{% endif %}>
+        <label class="form-check-label" for="is_active">Active</label>
+      </div>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" name="is_admin" id="is_admin" {% if employee.is_admin %}checked{% endif %}>
+        <label class="form-check-label" for="is_admin">Admin</label>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <button class="btn btn-accent mt-3" type="submit">Save employee</button>
+</form>
+{% endblock %}
