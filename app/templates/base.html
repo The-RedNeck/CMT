@@ -17,6 +17,7 @@
       </button>
       <div class="collapse navbar-collapse" id="nav">
         <ul class="navbar-nav me-auto">
+          {% if current_user.has_access %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('asset_management.list_assets') }}">Assets</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('list_forms.employees') }}">Employees</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('list_forms.departments') }}">Departments</a></li>
@@ -25,6 +26,8 @@
           {% if current_user.is_super_admin %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('administration.list_users') }}">Users</a></li>
           {% endif %}
+          {% endif %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('billing.pricing') }}">Billing</a></li>
         </ul>
         <span class="navbar-text me-3">{{ current_user.username }}</span>
         <a class="btn btn-sm btn-outline-light" href="{{ url_for('auth.logout') }}">Log out</a>
@@ -33,6 +36,12 @@
   </nav>
   {% endif %}
   <main class="container pb-5">
+    {% if current_user.is_authenticated and current_user.trial_ending_soon %}
+    <div class="alert alert-warning" role="alert">
+      Your free trial ends on {{ current_user.trial_ends_at.strftime('%B %d, %Y') }}.
+      <a href="{{ url_for('billing.pricing') }}">Subscribe</a> to keep access.
+    </div>
+    {% endif %}
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
         <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">

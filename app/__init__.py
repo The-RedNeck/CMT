@@ -1,8 +1,8 @@
 import os
 from datetime import timedelta
 
-from flask import Flask, render_template
-from flask_login import LoginManager, login_required
+from flask import Flask, flash, redirect, render_template, request, url_for
+from flask_login import LoginManager, current_user
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.pool import StaticPool
@@ -58,6 +58,8 @@ def create_app(config_overrides=None):
     from app.administration import bp as administration_bp
     from app.asset_management import bp as asset_management_bp
     from app.auth import bp as auth_bp
+    from app.billing import bp as billing_bp
+    from app.billing import subscription_required
     from app.labels import bp as labels_bp
     from app.list_forms import bp as list_forms_bp
     from app.new import bp as new_bp
@@ -66,6 +68,7 @@ def create_app(config_overrides=None):
     from app.tag_number import bp as tag_number_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(billing_bp)
     app.register_blueprint(asset_management_bp)
     app.register_blueprint(administration_bp)
     app.register_blueprint(list_forms_bp)
@@ -74,9 +77,21 @@ def create_app(config_overrides=None):
     app.register_blueprint(tag_number_bp)
     app.register_blueprint(labels_bp)
     app.register_blueprint(new_bp)
+    csrf.exempt(app.view_functions['billing.webhook'])
+
+    @app.before_request
+    def require_active_subscription():
+        """Trial or an active subscription is required everywhere except sign-in and billing."""
+        endpoint = request.endpoint or ''
+        if endpoint in ('static', 'health') or endpoint.startswith(('auth.', 'billing.')):
+            return None
+        if not current_user.is_authenticated or current_user.has_access:
+            return None
+        flash('Your free trial has ended. Please subscribe to continue.', 'warning')
+        return redirect(url_for('billing.pricing'))
 
     @app.route('/')
-    @login_required
+    @subscription_required
     def home():
         from app.models.asset import Asset
         from app.models.employee import Employee
@@ -98,6 +113,8 @@ def create_app(config_overrides=None):
 
     with app.app_context():
         db.create_all()
+        from app.billing import ensure_subscription_columns
+        ensure_subscription_columns()
         if not app.config.get('TESTING'):
             from app.seed import seed_demo_data
             seed_demo_data()

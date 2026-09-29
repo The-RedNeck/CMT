@@ -10,7 +10,7 @@
 </div>
 <div class="page-card p-3">
   <table class="table mb-0">
-    <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Subscription</th><th></th></tr></thead>
     <tbody>
       {% for user in users %}
       <tr>
@@ -18,6 +18,7 @@
         <td>{{ user.email }}</td>
         <td>{{ 'Super admin' if user.is_super_admin else 'User' }}</td>
         <td>{{ 'Active' if user.active else 'Inactive' }}</td>
+        <td>{% if user.subscription_status == 'active' %}Subscribed{% elif user.in_trial %}Trial{% else %}Trial ended{% endif %}</td>
         <td class="text-end">
           <a href="{{ url_for('administration.edit_user', user_id=user.id) }}">Edit</a>
           <form class="d-inline" method="post" action="{{ url_for('administration.toggle_user_active', user_id=user.id) }}">

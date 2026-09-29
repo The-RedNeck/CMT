@@ -1,7 +1,21 @@
-from app import db
+from datetime import datetime, timedelta, timezone
+
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+
+from app import db
+
+TRIAL_DAYS = 90
+
+
+def _utcnow():
+    """Naive UTC, matching the rest of the stored timestamps."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def trial_end_from_now():
+    return _utcnow() + timedelta(days=TRIAL_DAYS)
+
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -14,6 +28,25 @@ class User(UserMixin, db.Model):
     locked_until = db.Column(db.DateTime)
     lockout_count = db.Column(db.Integer, default=0)  # Track number of lockouts for progressive lockout
     is_super_admin = db.Column(db.Boolean, default=False)
+    trial_ends_at = db.Column(db.DateTime, default=trial_end_from_now)
+    stripe_customer_id = db.Column(db.String(64))
+    subscription_status = db.Column(db.String(32))
+
+    @property
+    def in_trial(self):
+        if self.trial_ends_at is None:
+            return False
+        return _utcnow() < self.trial_ends_at
+
+    @property
+    def has_access(self):
+        return self.in_trial or self.subscription_status == 'active'
+
+    @property
+    def trial_ending_soon(self):
+        if self.subscription_status == 'active' or not self.in_trial:
+            return False
+        return self.trial_ends_at - _utcnow() < timedelta(days=7)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

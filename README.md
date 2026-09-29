@@ -82,6 +82,25 @@ A comprehensive Flask-based web application for enterprise asset and configurati
 
    Optional environment variables: `SECRET_KEY`, `DATABASE_URL`.
 
+### Subscriptions
+
+Each account gets a 90-day trial stored as `trial_ends_at`. No card is required during the trial. When it ends, the app sends the user to Stripe Checkout. Access follows the Stripe webhook, not the browser return from Checkout.
+
+```
+STRIPE_SECRET_KEY
+STRIPE_PRICE_ID
+STRIPE_WEBHOOK_SECRET
+STRIPE_PRICE_LABEL
+```
+
+`STRIPE_PRICE_LABEL` is optional text shown on the pricing page, such as `$49/month`. Create the price in the Stripe Dashboard, start in test mode, and subscribe the webhook endpoint `/stripe/webhook` to `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`.
+
+```bash
+stripe listen --forward-to localhost:5000/stripe/webhook
+```
+
+Existing accounts with no trial date are given 90 days the next time the app starts.
+
 ### Production Deployment
 
 For production, use a WSGI server:
@@ -104,6 +123,7 @@ CMT/
 ├── app/
 │   ├── __init__.py          # Application factory
 │   ├── auth.py              # Authentication routes
+│   ├── billing.py           # Trial, Stripe Checkout, and webhooks
 │   ├── asset_management.py  # Core asset management routes
 │   ├── administration.py    # User management routes
 │   ├── list_forms.py        # CRUD forms for entities
