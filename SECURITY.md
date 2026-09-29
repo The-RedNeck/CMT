@@ -1,25 +1,7 @@
-Inconsistent CSRF protection across endpoints
-Potential SQL injection patterns in search
-No rate limiting on API endpoints
-Magic numbers, deprecated APIs, missing validation
-Temporary files not cleaned up
-Duplicate export code patterns
-## Supported Versions
-
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+# Security Policy
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+Report security issues by email to kodgey1@gmail.com.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+Please include the affected area, what an attacker can do, and steps to reproduce the problem. Do not open a public GitHub issue for a security vulnerability.

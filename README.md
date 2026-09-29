@@ -274,6 +274,8 @@ See [BUGS.md](BUGS.md) for a comprehensive list of known issues and their status
 
 ## Security
 
+Report vulnerabilities by email to kodgey1@gmail.com. See [SECURITY.md](SECURITY.md). Do not open a public issue for a security problem.
+
 - CSRF protection enabled on all forms
 - Password hashing using Werkzeug security
 - Progressive account lockout for failed logins
