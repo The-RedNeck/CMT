@@ -2,6 +2,22 @@
 
 This document contains a comprehensive analysis of potential bugs, issues, and areas for improvement in the CMT (Configuration Management Tool) codebase.
 
+## Fix status
+
+These items from the original review have been handled in code:
+
+- Department AJAX create now checks CSRF the same way as the other add-* JSON endpoints. `list_forms.new_department_ajax` does too.
+- Receipt routes that were open now require login, and receipt PDFs are written to a temp file and deleted after the response is built.
+- Login is limited to 30 POSTs per IP per minute, in addition to the existing per-account lockout. Tag generation is limited to 10 per IP per minute. Employee search is limited to 60 per IP per minute. This limiter is in-process, so each Gunicorn worker counts separately. A shared limiter such as Flask-Limiter has to be initialized in the app factory, which is not in this repository.
+- Search filters escape `%` and `_` before `ILIKE`. SQLAlchemy already sends these as bound parameters, so they were not SQL injection. The change stops a search from acting as a match-all wildcard.
+- Asset IDs are left to the database. The Asset model sets `sqlite_autoincrement` so SQLite does not reuse deleted IDs.
+- `datetime.utcnow` defaults now use naive UTC via `datetime.now(timezone.utc)` so existing rows stay comparable.
+- Purchase price, maintenance cost, and department budget reject negative numbers.
+- Page size `25` is the `PAGE_SIZE` constant in the modules that paginate.
+- The two Excel exports in `reports.py` share one writer helper.
+
+HTML form posts were not given a second manual CSRF check. Those pages already post normal forms. Adding a second check here, without the templates, would reject submits that do not include a field named `csrf_token`.
+
 ## Critical Issues
 
 ### 1. Duplicate Import Statement

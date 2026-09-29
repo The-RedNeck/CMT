@@ -23,6 +23,92 @@ from sqlalchemy import and_, or_, func
 
 bp = Blueprint('asset_management', __name__, url_prefix='/asset-management')
 
+PAGE_SIZE = 25
+
+
+def _csrf_json_error():
+    """Match the CSRF check already used by the add-* JSON endpoints.
+
+    Accepts the token from the form body or the headers Flask-WTF documents
+    for AJAX. HTML form posts are left to the form/CSRF setup those pages
+    already use.
+    """
+    from flask_wtf.csrf import validate_csrf
+    from wtforms import ValidationError
+    token = (
+        request.form.get('csrf_token')
+        or request.headers.get('X-CSRFToken')
+        or request.headers.get('X-CSRF-Token')
+    )
+    try:
+        validate_csrf(token)
+    except ValidationError:
+        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    return None
+
+
+def _ilike_contains(column, term):
+    """Bound LIKE pattern. % and _ in user input stay literal."""
+    escaped = (
+        str(term)
+        .replace('\\', '\\\\')
+        .replace('%', '\\%')
+        .replace('_', '\\_')
+    )
+    return column.ilike(f'%{escaped}%', escape='\\')
+
+
+def _delete_file(path):
+    if not path:
+        return
+    try:
+        if os.path.exists(path):
+            os.unlink(path)
+    except OSError as cleanup_error:
+        current_app.logger.warning(f"Could not delete temporary file {path}: {cleanup_error}")
+
+
+def _pdf_response(content, filename):
+    from flask import Response
+    return Response(
+        content,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+def _read_generated_pdf(temp_path, receipt_path):
+    path = receipt_path or temp_path
+    try:
+        with open(path, 'rb') as handle:
+            return handle.read()
+    finally:
+        _delete_file(temp_path)
+        if path != temp_path:
+            _delete_file(path)
+
+
+def _parse_required_price(raw):
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, 'Purchase price must be a valid number.'
+    if value < 0:
+        return None, 'Purchase price cannot be negative.'
+    return value, None
+
+
+def _parse_optional_cost(raw):
+    if raw is None or str(raw).strip() == '':
+        return None, None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, 'Cost must be a valid number.'
+    if value < 0:
+        return None, 'Cost cannot be negative.'
+    return value, None
+
 def _is_checkout_eligible(asset: Asset) -> bool:
     """
     Allow checkout when asset is truly available, or when it is in an
@@ -70,67 +156,37 @@ def _apply_asset_text_search_filters(query, search_term: str):
 
 def generate_and_send_checkout_receipt(asset, employee):
     """Generate checkout receipt and return as downloadable response"""
+    temp_path = None
     try:
-        # Create a temporary file for the receipt
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
             temp_path = temp_file.name
-        
-        # Generate the receipt
         receipt_path = generate_checkout_receipt(asset, employee, temp_path)
-        
-        # Read the file content
-        with open(receipt_path, 'rb') as f:
-            file_content = f.read()
-        
-        # Clean up the temporary file
-        os.unlink(receipt_path)
-        
-        # Create response with proper headers
-        from flask import Response
-        response = Response(
-            file_content,
-            mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-            }
-        )
-        return response
-        
+        file_content = _read_generated_pdf(temp_path, receipt_path)
+        temp_path = None
+        filename = f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        return _pdf_response(file_content, filename)
     except Exception as e:
         current_app.logger.error(f"Error generating checkout receipt: {e}")
         return None
+    finally:
+        _delete_file(temp_path)
 
 def generate_and_send_checkin_receipt(asset, employee):
     """Generate checkin receipt and return as downloadable response"""
+    temp_path = None
     try:
-        # Create a temporary file for the receipt
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
             temp_path = temp_file.name
-        
-        # Generate the receipt
         receipt_path = generate_checkin_receipt(asset, employee, temp_path)
-        
-        # Read the file content
-        with open(receipt_path, 'rb') as f:
-            file_content = f.read()
-        
-        # Clean up the temporary file
-        os.unlink(receipt_path)
-        
-        # Create response with proper headers
-        from flask import Response
-        response = Response(
-            file_content,
-            mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-            }
-        )
-        return response
-        
+        file_content = _read_generated_pdf(temp_path, receipt_path)
+        temp_path = None
+        filename = f'checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        return _pdf_response(file_content, filename)
     except Exception as e:
         current_app.logger.error(f"Error generating checkin receipt: {e}")
         return None
+    finally:
+        _delete_file(temp_path)
 
 @bp.route('/')
 @login_required
@@ -434,10 +490,9 @@ def new_asset():
                 flash(f'Serial number "{serial_number}" already exists. Please choose a different serial number.', 'danger')
                 return render_template('assets/new.html', asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
             
-        try:
-            purchase_price = float(purchase_price) if purchase_price else None
-        except (TypeError, ValueError):
-            flash('Purchase price must be a valid number.', 'danger')
+        purchase_price, price_error = _parse_required_price(purchase_price)
+        if price_error:
+            flash(price_error, 'danger')
             return render_template('assets/new.html', asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
             
         try:
@@ -727,7 +782,7 @@ def audit_asset(asset_id):
 def maintenance():
     # Pagination parameters
     page = request.args.get('page', 1, type=int)
-    per_page = 25
+    per_page = PAGE_SIZE
 
     # Get assets in maintenance (fresh query so list updates after remove-maintenance)
     query = Asset.query.filter_by(status='In Maintenance')
@@ -909,7 +964,11 @@ def new_maintenance(asset_id):
         maintenance.priority = request.form['priority']
         maintenance.start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d').date()
         maintenance.end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d').date() if request.form.get('end_date') else None
-        maintenance.cost = request.form.get('cost')
+        cost, cost_error = _parse_optional_cost(request.form.get('cost'))
+        if cost_error:
+            flash(cost_error, 'danger')
+            return render_template('maintenance/new.html', asset=asset)
+        maintenance.cost = cost
         maintenance.description = request.form['description']
         maintenance.findings = request.form.get('findings')
         maintenance.recommendations = request.form.get('recommendations')
@@ -931,7 +990,14 @@ def edit_maintenance(record_id):
         maintenance.priority = request.form['priority']
         maintenance.start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d').date()
         maintenance.end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d').date() if request.form.get('end_date') else None
-        maintenance.cost = request.form.get('cost')
+        cost, cost_error = _parse_optional_cost(request.form.get('cost'))
+        if cost_error:
+            flash(cost_error, 'danger')
+            return render_template('asset_management/maintenance.html',
+                                 asset=maintenance.asset,
+                                 maintenance=maintenance,
+                                 today=datetime.now().date())
+        maintenance.cost = cost
         maintenance.description = request.form['description']
         maintenance.findings = request.form.get('findings')
         maintenance.recommendations = request.form.get('recommendations')
@@ -953,11 +1019,11 @@ def find_asset():
     query = sanitize_search_term(request.args.get('q', ''))
     if query:
         assets = Asset.query.outerjoin(Employee, Asset.current_employee_id == Employee.id).filter(
-            (Asset.tag_number.ilike(f'%{query}%')) |
-            (Asset.name.ilike(f'%{query}%')) |
-            (Asset.serial_number.ilike(f'%{query}%')) |
-            (Employee.first_name.ilike(f'%{query}%')) |
-            (Employee.last_name.ilike(f'%{query}%'))
+            _ilike_contains(Asset.tag_number, query) |
+            _ilike_contains(Asset.name, query) |
+            _ilike_contains(Asset.serial_number, query) |
+            _ilike_contains(Employee.first_name, query) |
+            _ilike_contains(Employee.last_name, query)
         ).all()
     else:
         assets = []
@@ -1030,13 +1096,13 @@ def advanced_find():
         
         # Apply text search filters
         if tag_number:
-            query = query.filter(Asset.tag_number.ilike(f'%{tag_number}%'))
+            query = query.filter(_ilike_contains(Asset.tag_number, tag_number))
         if serial_number:
-            query = query.filter(Asset.serial_number.ilike(f'%{serial_number}%'))
+            query = query.filter(_ilike_contains(Asset.serial_number, serial_number))
         if model_number:
-            query = query.filter(Asset.model_number.ilike(f'%{model_number}%'))
+            query = query.filter(_ilike_contains(Asset.model_number, model_number))
         if name_search:
-            query = query.filter(Asset.name.ilike(f'%{name_search}%'))
+            query = query.filter(_ilike_contains(Asset.name, name_search))
         
         # Apply dropdown filters
         if asset_type_id:
@@ -1198,41 +1264,27 @@ def bulk_assign():
             db.session.commit()
             
             # Generate ONE bulk checkout receipt for the newly assigned assets only
+            temp_path = None
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
                     temp_path = temp_file.name
                 
-                # Generate bulk receipt for only the assets that were just checked out
                 bulk_receipt_path = generate_bulk_checkout_receipt(assets, employee, temp_path)
+                file_content = _read_generated_pdf(temp_path, bulk_receipt_path)
+                temp_path = None
                 
-                # Read the file content
-                with open(bulk_receipt_path, 'rb') as f:
-                    file_content = f.read()
-                
-                # Clean up the temporary file
-                os.unlink(bulk_receipt_path)
-                
-                # Create success message
                 success_msg = f'Successfully checked out {assigned_count} asset(s) to {employee.full_name}.'
                 if failed_assignments:
                     success_msg += f' Failed assignments: {"; ".join(failed_assignments)}'
                 
                 flash(success_msg, 'success')
-                
-                # Return the bulk receipt as download
-                from flask import Response
-                response = Response(
-                    file_content,
-                    mimetype='application/pdf',
-                    headers={
-                        'Content-Disposition': f'attachment; filename="bulk_checkout_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-                    }
-                )
-                return response
-                
+                filename = f'bulk_checkout_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+                return _pdf_response(file_content, filename)
             except Exception as e:
                 current_app.logger.error(f"Error generating bulk receipt: {e}")
                 flash('Assets checked out successfully, but receipt generation failed.', 'warning')
+            finally:
+                _delete_file(temp_path)
             
             return redirect(url_for('asset_management.list_assets'))
             
@@ -1314,41 +1366,27 @@ def bulk_checkin():
             db.session.commit()
             
             # Generate ONE bulk check-in receipt for the newly checked in assets only
+            temp_path = None
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
                     temp_path = temp_file.name
                 
-                # Generate bulk receipt for only the assets that were just checked in
                 bulk_receipt_path = generate_bulk_checkin_receipt(assets, employee, temp_path)
+                file_content = _read_generated_pdf(temp_path, bulk_receipt_path)
+                temp_path = None
                 
-                # Read the file content
-                with open(bulk_receipt_path, 'rb') as f:
-                    file_content = f.read()
-                
-                # Clean up the temporary file
-                os.unlink(bulk_receipt_path)
-                
-                # Create success message
                 success_msg = f'Successfully checked in {checked_in_count} asset(s) from {employee.full_name}.'
                 if failed_checkins:
                     success_msg += f' Failed check-ins: {"; ".join(failed_checkins)}'
                 
                 flash(success_msg, 'success')
-                
-                # Return the bulk receipt as download
-                from flask import Response
-                response = Response(
-                    file_content,
-                    mimetype='application/pdf',
-                    headers={
-                        'Content-Disposition': f'attachment; filename="bulk_checkin_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-                    }
-                )
-                return response
-                
+                filename = f'bulk_checkin_receipt_{employee.full_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+                return _pdf_response(file_content, filename)
             except Exception as e:
                 current_app.logger.error(f"Error generating bulk receipt: {e}")
                 flash('Assets checked in successfully, but receipt generation failed.', 'warning')
+            finally:
+                _delete_file(temp_path)
             
             return redirect(url_for('asset_management.list_assets'))
             
@@ -1417,13 +1455,9 @@ def maintenance_detail(maintenance_id):
 @bp.route('/api/add-asset-type', methods=['POST'])
 @login_required
 def api_add_asset_type():
-    # Validate CSRF token
-    from flask_wtf.csrf import validate_csrf
-    from wtforms import ValidationError
-    try:
-        validate_csrf(request.form.get('csrf_token'))
-    except ValidationError:
-        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     
     try:
         name = request.form.get('name')
@@ -1450,13 +1484,9 @@ def api_add_asset_type():
 @bp.route('/api/add-location', methods=['POST'])
 @login_required
 def api_add_location():
-    # Validate CSRF token
-    from flask_wtf.csrf import validate_csrf
-    from wtforms import ValidationError
-    try:
-        validate_csrf(request.form.get('csrf_token'))
-    except ValidationError:
-        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     
     try:
         name = request.form.get('name')
@@ -1483,13 +1513,9 @@ def api_add_location():
 @bp.route('/api/add-department', methods=['POST'])
 @login_required
 def api_add_department():
-    # Validate CSRF token
-    from flask_wtf.csrf import validate_csrf
-    from wtforms import ValidationError
-    try:
-        validate_csrf(request.form.get('csrf_token'))
-    except ValidationError:
-        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     
     name = request.form.get('name')
     code = request.form.get('code')
@@ -1514,13 +1540,9 @@ def api_add_department():
 @bp.route('/api/add-manufacturer', methods=['POST'])
 @login_required
 def api_add_manufacturer():
-    # Validate CSRF token
-    from flask_wtf.csrf import validate_csrf
-    from wtforms import ValidationError
-    try:
-        validate_csrf(request.form.get('csrf_token'))
-    except ValidationError:
-        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     
     name = request.form.get('name')
     description = request.form.get('description')
@@ -1650,11 +1672,11 @@ def edit_asset(asset_id):
         if not purchase_price:
             flash('Purchase price is required.', 'danger')
             return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
-        try:
-            asset.purchase_price = float(purchase_price)
-        except (TypeError, ValueError):
-            flash('Purchase price must be a valid number.', 'danger')
+        parsed_price, price_error = _parse_required_price(purchase_price)
+        if price_error:
+            flash(price_error, 'danger')
             return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
+        asset.purchase_price = parsed_price
         
         # Handle purchase date
         purchase_date = request.form.get('purchase_date')
@@ -1823,23 +1845,21 @@ def assign_asset(asset_id):
             # Commit all changes together
             db.session.commit()
             
-            # Generate receipt
+            temp_path = None
             try:
-                receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'receipts')
-                os.makedirs(receipts_dir, exist_ok=True)
-                output_path = os.path.join(receipts_dir, f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-                receipt_path = generate_checkout_receipt(asset, employee, output_path)
-                
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                    temp_path = temp_file.name
+                receipt_path = generate_checkout_receipt(asset, employee, temp_path)
+                file_content = _read_generated_pdf(temp_path, receipt_path)
+                temp_path = None
                 flash(f'Asset checked out to {employee.full_name} successfully.', 'success')
-                return send_file(
-                    receipt_path,
-                    as_attachment=True,
-                    download_name=os.path.basename(receipt_path),
-                    mimetype='application/pdf'
-                )
+                filename = f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+                return _pdf_response(file_content, filename)
             except Exception as e:
                 flash(f'Asset assigned but receipt generation failed: {str(e)}', 'warning')
                 return redirect(url_for('asset_management.list_assets'))
+            finally:
+                _delete_file(temp_path)
         
         elif assignee_type == 'department':
             department = Department.query.get(assignee_id)
@@ -1874,30 +1894,28 @@ def assign_asset(asset_id):
         today=datetime.now().date())
 
 @bp.route('/asset/<int:asset_id>/checkout_receipt')
+@login_required
 def generate_checkout_receipt_route(asset_id):
     """Generate and download a check-out receipt for an asset."""
     asset = Asset.query.get_or_404(asset_id)
     if not asset.current_employee:
         flash('Asset is not checked out to any employee.', 'error')
         return redirect(url_for('asset_management.asset_detail', asset_id=asset_id))
-    
-    # Create receipts directory if it doesn't exist
-    receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'receipts')
-    os.makedirs(receipts_dir, exist_ok=True)
-    
-    # Generate receipt
-    output_path = os.path.join(receipts_dir, f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-    receipt_path = generate_checkout_receipt(asset, asset.current_employee, output_path)
-    
-    # Send the file
-    return send_file(
-        receipt_path,
-        as_attachment=True,
-        download_name=os.path.basename(receipt_path),
-        mimetype='application/pdf'
-    )
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            temp_path = temp_file.name
+        receipt_path = generate_checkout_receipt(asset, asset.current_employee, temp_path)
+        file_content = _read_generated_pdf(temp_path, receipt_path)
+        temp_path = None
+        filename = f'checkout_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        return _pdf_response(file_content, filename)
+    finally:
+        _delete_file(temp_path)
 
 @bp.route('/asset/<int:asset_id>/checkin_receipt')
+@login_required
 def generate_checkin_receipt_route(asset_id):
     try:
         asset = Asset.query.get_or_404(asset_id)
@@ -1941,21 +1959,17 @@ def generate_checkin_receipt_route(asset_id):
                 'error': 'Employee information not found.'
             }), 404
         
-        # Create receipts directory if it doesn't exist
-        receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'receipts')
-        os.makedirs(receipts_dir, exist_ok=True)
-        
-        # Generate receipt
-        output_path = os.path.join(receipts_dir, f'checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-        receipt_path = generate_checkin_receipt(asset, employee, output_path)
-        
-        # Send the file
-        return send_file(
-            receipt_path,
-            as_attachment=True,
-            download_name=os.path.basename(receipt_path),
-            mimetype='application/pdf'
-        )
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                temp_path = temp_file.name
+            receipt_path = generate_checkin_receipt(asset, employee, temp_path)
+            file_content = _read_generated_pdf(temp_path, receipt_path)
+            temp_path = None
+            filename = f'checkin_receipt_{asset.tag_number}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+            return _pdf_response(file_content, filename)
+        finally:
+            _delete_file(temp_path)
     except Exception as e:
         current_app.logger.error(f"Error generating check-in receipt: {str(e)}")
         return jsonify({

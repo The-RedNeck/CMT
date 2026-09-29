@@ -1,4 +1,9 @@
-from flask import Blueprint, request, jsonify, render_template, flash, make_response
+from collections import defaultdict
+from threading import Lock
+import time
+
+from flask import Blueprint, request, jsonify, render_template, flash, make_response, current_app
+from flask_login import login_required
 from flask_wtf import FlaskForm
 from wtforms import IntegerField, SubmitField
 from wtforms.validators import DataRequired, NumberRange
@@ -20,12 +25,53 @@ from PIL import Image
 
 bp = Blueprint('tag_number', __name__, url_prefix='/tag-numbers')
 
+_RATE_LOCK = Lock()
+_RATE_HITS = defaultdict(list)
+
+
+def _client_rate_limited(bucket, limit, window_seconds):
+    """In-process limit. Each Gunicorn worker keeps its own counts."""
+    now = time.monotonic()
+    with _RATE_LOCK:
+        recent = [stamp for stamp in _RATE_HITS[bucket] if now - stamp < window_seconds]
+        if len(recent) >= limit:
+            _RATE_HITS[bucket] = recent
+            return True
+        recent.append(now)
+        _RATE_HITS[bucket] = recent
+        return False
+
+
+def _csrf_error():
+    from flask_wtf.csrf import validate_csrf
+    from wtforms import ValidationError
+    payload = request.get_json(silent=True) or {}
+    token = (
+        request.form.get('csrf_token')
+        or request.headers.get('X-CSRFToken')
+        or request.headers.get('X-CSRF-Token')
+        or payload.get('csrf_token')
+    )
+    try:
+        validate_csrf(token)
+    except ValidationError:
+        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    return None
+
 class TagGenerationForm(FlaskForm):
     count = IntegerField('Number of Tags', validators=[DataRequired(), NumberRange(min=1, max=100)])
     submit = SubmitField('Generate PDF')
 
 @bp.route('/generate', methods=['POST'])
+@login_required
 def generate_tag_numbers():
+    csrf_error = _csrf_error()
+    if csrf_error:
+        return csrf_error
+    client_ip = (request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown').split(',')[0].strip()
+    if _client_rate_limited(f'tag-generate:{client_ip}', 10, 60):
+        current_app.logger.warning(f"Tag generation rate limit hit from IP: {client_ip}")
+        return jsonify({'success': False, 'message': 'Too many tag generation requests. Try again in a minute.'}), 429
     data = request.get_json() or {}
     # Sanitize and validate inputs
     prefix = sanitize_search_term(data.get('prefix', 'T'))[:10]  # Limit prefix length
@@ -57,11 +103,13 @@ def generate_tag_numbers():
     return jsonify({'generated': generated, 'count': len(generated)})
 
 @bp.route('/available', methods=['GET'])
+@login_required
 def list_available_tags():
     tags = AvailableTagNumber.query.filter_by(is_used=False).all()
     return jsonify([t.tag_number for t in tags])
 
 @bp.route('/used', methods=['GET'])
+@login_required
 def list_used_tags():
     tags = AvailableTagNumber.query.filter_by(is_used=True).all()
     return jsonify([t.tag_number for t in tags])
@@ -107,6 +155,7 @@ def generate_barcode_image(tag_number):
     return ImageReader(buffer)
 
 @bp.route('/', methods=['GET', 'POST'])
+@login_required
 def generate_tags_interface():
     """Web interface for generating tag numbers"""
     form = TagGenerationForm()

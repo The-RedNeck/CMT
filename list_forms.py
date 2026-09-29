@@ -21,6 +21,47 @@ from sqlalchemy import or_
 
 bp = Blueprint('list_forms', __name__, url_prefix='/list-forms')
 
+PAGE_SIZE = 25
+
+
+def _csrf_json_error():
+    """Same CSRF rule as the asset-management add-* JSON endpoints."""
+    from flask_wtf.csrf import validate_csrf
+    from wtforms import ValidationError
+    token = (
+        request.form.get('csrf_token')
+        or request.headers.get('X-CSRFToken')
+        or request.headers.get('X-CSRF-Token')
+    )
+    try:
+        validate_csrf(token)
+    except ValidationError:
+        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    return None
+
+
+def _ilike_contains(column, term):
+    """Bound LIKE pattern. % and _ in user input stay literal."""
+    escaped = (
+        str(term)
+        .replace('\\', '\\\\')
+        .replace('%', '\\%')
+        .replace('_', '\\_')
+    )
+    return column.ilike(f'%{escaped}%', escape='\\')
+
+
+def _parse_optional_budget(raw):
+    if raw is None or str(raw).strip() == '':
+        return None, None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, 'Budget must be a valid number.'
+    if value < 0:
+        return None, 'Budget cannot be negative.'
+    return value, None
+
 
 def _apply_employee_text_search(query, search_term: str):
     """
@@ -119,7 +160,7 @@ def new_location():
 def locations():
     # Pagination parameters
     page = validate_pagination_params(request.args.get('page', 1))
-    per_page = 25
+    per_page = PAGE_SIZE
     
     # Sanitize search term to prevent SQL injection
     search_term = sanitize_search_term(request.args.get('q', ''))
@@ -128,8 +169,8 @@ def locations():
     if search_term:
         # Use safe parameterized queries
         query = query.filter(
-            (Location.code.ilike(f"%{search_term}%")) |
-            (Location.name.ilike(f"%{search_term}%"))
+            _ilike_contains(Location.code, search_term) |
+            _ilike_contains(Location.name, search_term)
         )
     
     # Get total count for pagination
@@ -162,8 +203,8 @@ def export_locations():
     if search_term:
         # Use safe parameterized queries
         query = query.filter(
-            (Location.code.ilike(f"%{search_term}%")) |
-            (Location.name.ilike(f"%{search_term}%"))
+            _ilike_contains(Location.code, search_term) |
+            _ilike_contains(Location.name, search_term)
         )
     
     locations = query.order_by(Location.name).all()
@@ -217,7 +258,7 @@ def employees():
     
     # Pagination parameters
     page = validate_pagination_params(request.args.get('page', 1))
-    per_page = 25
+    per_page = PAGE_SIZE
     
     # Sanitize search term to prevent SQL injection
     search_term = sanitize_search_term(request.args.get('q', ''))
@@ -425,7 +466,7 @@ def delete_employee(employee_id):
 def departments():
     # Pagination parameters
     page = validate_pagination_params(request.args.get('page', 1))
-    per_page = 25
+    per_page = PAGE_SIZE
     
     # Sanitize search term to prevent SQL injection
     search_term = sanitize_search_term(request.args.get('q', ''))
@@ -434,8 +475,8 @@ def departments():
     if search_term:
         # Use safe parameterized queries
         query = query.filter(
-            (Department.code.ilike(f"%{search_term}%")) |
-            (Department.name.ilike(f"%{search_term}%"))
+            _ilike_contains(Department.code, search_term) |
+            _ilike_contains(Department.name, search_term)
         )
     
     # Get total count for pagination
@@ -468,8 +509,8 @@ def export_departments():
     if search_term:
         # Use safe parameterized queries
         query = query.filter(
-            (Department.code.ilike(f"%{search_term}%")) |
-            (Department.name.ilike(f"%{search_term}%"))
+            _ilike_contains(Department.code, search_term) |
+            _ilike_contains(Department.name, search_term)
         )
     
     departments = query.order_by(Department.name).all()
@@ -497,15 +538,10 @@ def edit_department(id):
         department.code = request.form.get('code')
         department.description = request.form.get('description')
         department.cost_center = request.form.get('cost_center')
-        budget = request.form.get('budget')
-        if budget:
-            try:
-                department.budget = float(budget)
-            except ValueError:
-                flash('Budget must be a valid number.', 'danger')
-                return render_template('list_forms/edit_department.html', department=department)
-        else:
-            department.budget = None
+        department.budget, budget_error = _parse_optional_budget(request.form.get('budget'))
+        if budget_error:
+            flash(budget_error, 'danger')
+            return render_template('list_forms/edit_department.html', department=department)
         
         manager_id = request.form.get('manager_id')
         department.manager_id = manager_id if manager_id else None
@@ -536,7 +572,7 @@ def edit_department(id):
 def asset_types():
     # Pagination parameters
     page = validate_pagination_params(request.args.get('page', 1))
-    per_page = 25
+    per_page = PAGE_SIZE
     
     # Sanitize search term to prevent SQL injection
     search_term = sanitize_search_term(request.args.get('q', ''))
@@ -545,8 +581,8 @@ def asset_types():
     if search_term:
         # Use safe parameterized queries
         query = query.filter(
-            (AssetType.name.ilike(f"%{search_term}%")) |
-            (AssetType.description.ilike(f"%{search_term}%"))
+            _ilike_contains(AssetType.name, search_term) |
+            _ilike_contains(AssetType.description, search_term)
         )
     
     # Get total count for pagination
@@ -579,8 +615,8 @@ def export_asset_types():
     if search_term:
         # Use safe parameterized queries
         query = query.filter(
-            (AssetType.name.ilike(f"%{search_term}%")) |
-            (AssetType.description.ilike(f"%{search_term}%"))
+            _ilike_contains(AssetType.name, search_term) |
+            _ilike_contains(AssetType.description, search_term)
         )
     
     asset_types = query.order_by(AssetType.name).all()
@@ -663,7 +699,7 @@ def manufacturers():
     if search_term:
         # Use safe parameterized queries
         query = query.filter(
-            Manufacturer.name.ilike(f"%{search_term}%")
+            _ilike_contains(Manufacturer.name, search_term)
         )
     manufacturers = query.all()
     return render_template('list_forms/manufacturers.html', manufacturers=manufacturers)
@@ -1026,7 +1062,14 @@ def new_department():
             department.code = code
             department.description = description
             department.cost_center = cost_center
-            department.budget = float(budget) if budget else None
+            department.budget, budget_error = _parse_optional_budget(budget)
+            if budget_error:
+                flash(budget_error, 'danger')
+                all_departments = Department.query.order_by(Department.name.asc()).all()
+                all_employees = Employee.query.filter_by(is_active=True).all()
+                return render_template('list_forms/new_department.html',
+                                     departments=all_departments,
+                                     employees=all_employees)
             department.manager_id = manager_id if manager_id else None
             department.parent_department_id = parent_department_id if parent_department_id else None
             db.session.add(department)
@@ -1056,6 +1099,9 @@ def new_department():
 @bp.route('/departments/new-ajax', methods=['POST'])
 @login_required
 def new_department_ajax():
+    csrf_error = _csrf_json_error()
+    if csrf_error:
+        return csrf_error
     name = request.form.get('name')
     code = request.form.get('code')
     if not name or not code:

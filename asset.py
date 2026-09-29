@@ -1,5 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
+
 from app import db
+
+
+def _utcnow():
+    """Naive UTC so comparisons stay compatible with existing rows."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class Asset(db.Model):
     __tablename__ = 'assets'
@@ -31,8 +37,8 @@ class Asset(db.Model):
     current_employee = db.relationship('Employee', backref='checked_out_assets')
     
     # Audit fields
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
     last_audit_date = db.Column(db.DateTime)
     last_maintenance_date = db.Column(db.DateTime)
     
@@ -102,7 +108,7 @@ class AssetHistory(db.Model):
     last_maintenance_date = db.Column(db.DateTime)
     action = db.Column(db.String(20))  # created, updated, deleted
     changed_by = db.Column(db.String(64))  # username or user id
-    changed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    changed_at = db.Column(db.DateTime, default=_utcnow)
     ip_address = db.Column(db.String(45))  # client IP address
 
     def __repr__(self):
