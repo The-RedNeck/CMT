@@ -526,11 +526,11 @@ def new_asset():
 @bp.route('/move/<int:asset_id>', methods=['GET', 'POST'])
 @login_required
 def move_asset(asset_id):
-    asset = Asset.query.get_or_404(asset_id)
-    if request.method == 'POST':
-        # Handle asset movement
-        pass
-    return render_template('asset_management/move.html', asset=asset)
+    """
+    Redirect to edit_asset - location/department transfers are handled there.
+    This route is kept for backward compatibility with existing links.
+    """
+    return redirect(url_for('asset_management.edit_asset', asset_id=asset_id))
 
 @bp.route('/checkout/<int:asset_id>', methods=['POST'])
 @login_required
@@ -627,11 +627,102 @@ def checkin_asset(asset_id):
 @bp.route('/audit/<int:asset_id>', methods=['GET', 'POST'])
 @login_required
 def audit_asset(asset_id):
+    """
+    Full asset audit with condition assessment, location verification,
+    and discrepancy reporting.
+    """
     asset = Asset.query.get_or_404(asset_id)
+    locations = Location.query.order_by(Location.name.asc()).all()
+    
     if request.method == 'POST':
-        # Handle asset audit
-        pass
-    return render_template('asset_management/audit.html', asset=asset)
+        try:
+            # Get audit form data
+            condition_status = request.form.get('condition_status', 'Good')
+            actual_location_id = request.form.get('actual_location_id')
+            audit_notes = request.form.get('audit_notes', '').strip()
+            asset_found = request.form.get('asset_found') == 'yes'
+            serial_verified = request.form.get('serial_verified') == 'yes'
+            
+            # Track discrepancies
+            discrepancies = []
+            
+            # Check if asset was physically found
+            if not asset_found:
+                discrepancies.append("Asset not found at expected location")
+                # Optionally update status to indicate missing
+                if asset.status not in ['Disposed', 'In Maintenance']:
+                    old_status = asset.status
+                    asset.status = 'Missing'
+                    discrepancies.append(f"Status changed from '{old_status}' to 'Missing'")
+            
+            # Check for location discrepancy
+            if actual_location_id:
+                actual_location_id = int(actual_location_id)
+                if actual_location_id != asset.location_id:
+                    old_location = asset.location.name if asset.location else 'Unknown'
+                    new_location = Location.query.get(actual_location_id)
+                    if new_location:
+                        discrepancies.append(f"Location updated from '{old_location}' to '{new_location.name}'")
+                        asset.location_id = actual_location_id
+            
+            # Check serial number verification
+            if not serial_verified and asset.serial_number:
+                discrepancies.append("Serial number could not be verified")
+            
+            # Build audit summary for description/notes
+            audit_summary_parts = []
+            audit_summary_parts.append(f"Audit Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            audit_summary_parts.append(f"Condition: {condition_status}")
+            audit_summary_parts.append(f"Asset Found: {'Yes' if asset_found else 'No'}")
+            audit_summary_parts.append(f"Serial Verified: {'Yes' if serial_verified else 'No'}")
+            
+            if discrepancies:
+                audit_summary_parts.append(f"Discrepancies: {'; '.join(discrepancies)}")
+            
+            if audit_notes:
+                audit_summary_parts.append(f"Notes: {audit_notes}")
+            
+            audit_summary = " | ".join(audit_summary_parts)
+            
+            # Update asset audit date
+            asset.last_audit_date = datetime.now()
+            
+            # Store condition in description if significant issue found
+            if condition_status in ['Poor', 'Damaged', 'Non-functional']:
+                if asset.description:
+                    asset.description = f"[{condition_status} - {datetime.now().strftime('%Y-%m-%d')}] {asset.description}"
+                else:
+                    asset.description = f"[{condition_status} - {datetime.now().strftime('%Y-%m-%d')}]"
+            
+            # Log the audit action
+            log_asset_history(asset, 'audited', changed_by=current_user.username)
+            
+            # Log IP address for audit trail
+            client_ip = get_client_ip()
+            print(f"Asset audited: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
+            
+            # Commit changes
+            db.session.commit()
+            
+            # Provide feedback based on results
+            if discrepancies:
+                flash(f'Audit completed with discrepancies: {"; ".join(discrepancies)}', 'warning')
+            else:
+                flash('Audit completed successfully. No discrepancies found.', 'success')
+            
+            return redirect(url_for('asset_management.asset_detail', asset_id=asset_id))
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error during audit: {str(e)}")
+            flash(f'Error during audit: {str(e)}', 'danger')
+            return redirect(url_for('asset_management.audit_asset', asset_id=asset_id))
+    
+    # GET request - show audit form with current asset details
+    return render_template('asset_management/audit.html', 
+                          asset=asset, 
+                          locations=locations,
+                          today=datetime.now().date())
 
 # maintenance route to list all asset with In Maintenance status
 @bp.route('/maintenance')
@@ -878,10 +969,178 @@ def find_asset():
 @bp.route('/advanced-find', methods=['GET', 'POST'])
 @login_required
 def advanced_find():
+    """
+    Advanced search with multiple filter criteria:
+    - Asset type, location, department, status
+    - Date range (purchase date, created date)
+    - Price range
+    - Employee assignment
+    - Tag number, serial number, model number
+    """
+    # Get all options for dropdowns
+    asset_types = AssetType.query.order_by(AssetType.name.asc()).all()
+    locations = Location.query.order_by(Location.name.asc()).all()
+    departments = Department.query.order_by(Department.name.asc()).all()
+    employees = Employee.query.filter_by(is_active=True).order_by(Employee.first_name, Employee.last_name).all()
+    manufacturers = Manufacturer.query.order_by(Manufacturer.name.asc()).all()
+    
+    # Status options
+    status_options = ['Available', 'Checked Out', 'In Maintenance', 'Disposed', 'Missing']
+    
+    results = []
+    search_performed = False
+    
     if request.method == 'POST':
-        # Handle advanced search
-        pass
-    return render_template('asset_management/advanced_find.html')
+        search_performed = True
+        
+        # Get and sanitize all filter parameters
+        tag_number = sanitize_search_term(request.form.get('tag_number', ''))
+        serial_number = sanitize_search_term(request.form.get('serial_number', ''))
+        model_number = sanitize_search_term(request.form.get('model_number', ''))
+        name_search = sanitize_search_term(request.form.get('name_search', ''))
+        
+        asset_type_id = request.form.get('asset_type_id', '')
+        location_id = request.form.get('location_id', '')
+        department_id = request.form.get('department_id', '')
+        manufacturer_id = request.form.get('manufacturer_id', '')
+        status = sanitize_filter_value(request.form.get('status', ''))
+        employee_id = request.form.get('employee_id', '')
+        
+        # Date filters
+        purchase_date_from = validate_date_string(request.form.get('purchase_date_from', ''))
+        purchase_date_to = validate_date_string(request.form.get('purchase_date_to', ''))
+        created_date_from = validate_date_string(request.form.get('created_date_from', ''))
+        created_date_to = validate_date_string(request.form.get('created_date_to', ''))
+        
+        # Price filters
+        price_min = request.form.get('price_min', '')
+        price_max = request.form.get('price_max', '')
+        
+        # Build query
+        query = db.session.query(
+            Asset,
+            AssetType.name.label('asset_type_name'),
+            Location.name.label('location_name'),
+            Department.name.label('department_name'),
+            Employee.first_name.label('employee_first'),
+            Employee.last_name.label('employee_last'),
+            Manufacturer.name.label('manufacturer_name')
+        ).outerjoin(AssetType, Asset.asset_type_id == AssetType.id
+        ).outerjoin(Location, Asset.location_id == Location.id
+        ).outerjoin(Department, Asset.department_id == Department.id
+        ).outerjoin(Employee, Asset.current_employee_id == Employee.id
+        ).outerjoin(Manufacturer, Asset.manufacturer_id == Manufacturer.id)
+        
+        # Apply text search filters
+        if tag_number:
+            query = query.filter(Asset.tag_number.ilike(f'%{tag_number}%'))
+        if serial_number:
+            query = query.filter(Asset.serial_number.ilike(f'%{serial_number}%'))
+        if model_number:
+            query = query.filter(Asset.model_number.ilike(f'%{model_number}%'))
+        if name_search:
+            query = query.filter(Asset.name.ilike(f'%{name_search}%'))
+        
+        # Apply dropdown filters
+        if asset_type_id:
+            try:
+                query = query.filter(Asset.asset_type_id == int(asset_type_id))
+            except ValueError:
+                pass
+        if location_id:
+            try:
+                query = query.filter(Asset.location_id == int(location_id))
+            except ValueError:
+                pass
+        if department_id:
+            try:
+                query = query.filter(Asset.department_id == int(department_id))
+            except ValueError:
+                pass
+        if manufacturer_id:
+            try:
+                query = query.filter(Asset.manufacturer_id == int(manufacturer_id))
+            except ValueError:
+                pass
+        if status:
+            query = query.filter(Asset.status == status)
+        if employee_id:
+            try:
+                query = query.filter(Asset.current_employee_id == int(employee_id))
+            except ValueError:
+                pass
+        
+        # Apply date filters
+        if purchase_date_from:
+            try:
+                dt_from = datetime.strptime(purchase_date_from, '%Y-%m-%d').date()
+                query = query.filter(Asset.purchase_date >= dt_from)
+            except ValueError:
+                pass
+        if purchase_date_to:
+            try:
+                dt_to = datetime.strptime(purchase_date_to, '%Y-%m-%d').date()
+                query = query.filter(Asset.purchase_date <= dt_to)
+            except ValueError:
+                pass
+        if created_date_from:
+            try:
+                dt_from = datetime.fromisoformat(created_date_from)
+                query = query.filter(Asset.created_at >= dt_from)
+            except ValueError:
+                pass
+        if created_date_to:
+            try:
+                dt_to = datetime.fromisoformat(created_date_to)
+                query = query.filter(Asset.created_at <= dt_to)
+            except ValueError:
+                pass
+        
+        # Apply price filters
+        if price_min:
+            try:
+                query = query.filter(Asset.purchase_price >= float(price_min))
+            except ValueError:
+                pass
+        if price_max:
+            try:
+                query = query.filter(Asset.purchase_price <= float(price_max))
+            except ValueError:
+                pass
+        
+        # Order and execute
+        query = query.order_by(Asset.tag_number.asc())
+        raw_results = query.all()
+        
+        # Format results
+        for asset, type_name, loc_name, dept_name, emp_first, emp_last, mfr_name in raw_results:
+            employee_name = f"{emp_first} {emp_last}" if emp_first and emp_last else "Unassigned"
+            results.append({
+                'id': asset.id,
+                'tag_number': asset.tag_number,
+                'name': asset.name,
+                'serial_number': asset.serial_number or '',
+                'model_number': asset.model_number or '',
+                'status': asset.status,
+                'asset_type': type_name or '',
+                'location': loc_name or '',
+                'department': dept_name or '',
+                'employee': employee_name,
+                'manufacturer': mfr_name or '',
+                'purchase_price': asset.purchase_price,
+                'purchase_date': asset.purchase_date
+            })
+    
+    return render_template('asset_management/advanced_find.html',
+                          asset_types=asset_types,
+                          locations=locations,
+                          departments=departments,
+                          employees=employees,
+                          manufacturers=manufacturers,
+                          status_options=status_options,
+                          results=results,
+                          search_performed=search_performed,
+                          result_count=len(results))
 
 @bp.route('/bulk-assign', methods=['GET', 'POST'])
 @login_required
