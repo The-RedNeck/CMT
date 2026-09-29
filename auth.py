@@ -19,7 +19,7 @@ class LoginForm(FlaskForm):
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
     client_ip = get_client_ip()
-    print(f"Login attempt from IP: {client_ip}")
+    current_app.logger.info(f"Login attempt from IP: {client_ip}")
     
     if current_user.is_authenticated:
         return redirect(url_for('home'))
@@ -27,7 +27,7 @@ def login():
     if form.validate_on_submit():
         username = form.username.data
         password = form.password.data
-        print(f"Login attempt for username '{username}' from IP: {client_ip}")
+        current_app.logger.info(f"Login attempt for username '{username}' from IP: {client_ip}")
         
         # Try to query user, with automatic database migration if needed
         try:

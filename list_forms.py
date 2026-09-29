@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 from app import db
 from app.models.asset_type import AssetType
 from app.models.location import Location
@@ -194,7 +194,7 @@ def export_locations():
                 
             data.append(row)
         except Exception as e:
-            print(f"Error processing location {l.id}: {e}")
+            current_app.logger.error(f"Error processing location {l.id}: {e}")
             continue
     
     if not data:
@@ -314,7 +314,7 @@ def new_employee():
         except Exception as e:
             db.session.rollback()
             error_msg = f'Failed to add employee: {str(e)}'
-            print(f"Employee creation error: {error_msg}")
+            current_app.logger.error(f"Employee creation error: {error_msg}")
             if request.headers.get('Accept') == 'application/json' or request.is_json or request.form:
                 return jsonify({'success': False, 'message': error_msg}), 500
             flash(error_msg, 'danger')
@@ -603,7 +603,7 @@ def export_asset_types():
                 
             data.append(row)
         except Exception as e:
-            print(f"Error processing asset type {at.id}: {e}")
+            current_app.logger.error(f"Error processing asset type {at.id}: {e}")
             continue
     
     if not data:
@@ -863,7 +863,7 @@ def employee_history_api(employee_id):
                 }
                 formatted.append(record)
             except Exception as e:
-                print(f"Error processing employee history record {h.id}: {e}")
+                current_app.logger.error(f"Error processing employee history record {h.id}: {e}")
                 continue
         
         # Process asset history
@@ -895,7 +895,7 @@ def employee_history_api(employee_id):
                 }
                 formatted.append(record)
             except Exception as e:
-                print(f"Error processing asset history record {h.id}: {e}")
+                current_app.logger.error(f"Error processing asset history record {h.id}: {e}")
                 continue
         
         # Sort all by changed_at descending
@@ -903,7 +903,7 @@ def employee_history_api(employee_id):
         return jsonify(formatted)
         
     except Exception as e:
-        print(f"Error in employee history API: {e}")
+        current_app.logger.error(f"Error in employee history API: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Failed to load employee history'}), 500

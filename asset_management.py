@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, send_file, make_response
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, send_file, make_response, current_app
 from flask_login import login_required, current_user
 from app.models.asset import Asset, AssetHistory
 from app.models.maintenance import Maintenance
@@ -97,7 +97,7 @@ def generate_and_send_checkout_receipt(asset, employee):
         return response
         
     except Exception as e:
-        print(f"Error generating checkout receipt: {e}")
+        current_app.logger.error(f"Error generating checkout receipt: {e}")
         return None
 
 def generate_and_send_checkin_receipt(asset, employee):
@@ -129,7 +129,7 @@ def generate_and_send_checkin_receipt(asset, employee):
         return response
         
     except Exception as e:
-        print(f"Error generating checkin receipt: {e}")
+        current_app.logger.error(f"Error generating checkin receipt: {e}")
         return None
 
 @bp.route('/')
@@ -256,7 +256,7 @@ def filtered_assets():
     try:
         import traceback
         
-        print(f"[filtered_assets] API called by user: {current_user.username if current_user.is_authenticated else 'anonymous'}")
+        current_app.logger.debug(f"[filtered_assets] API called by user: {current_user.username if current_user.is_authenticated else 'anonymous'}")
         
         # Get and sanitize filter parameters
         location = sanitize_filter_value(request.args.get('location', ''))
@@ -267,7 +267,7 @@ def filtered_assets():
         date_to = validate_date_string(request.args.get('date_to', ''))
         search = sanitize_search_term(request.args.get('search', ''))
         
-        print(f"[filtered_assets] Filters - location: {location}, type: {asset_type}, status: {status}, search: {search}")
+        current_app.logger.debug(f"[filtered_assets] Filters - location: {location}, type: {asset_type}, status: {status}, search: {search}")
         
         # Build the query - use proper join syntax
         query = db.session.query(
@@ -310,9 +310,9 @@ def filtered_assets():
         query = query.order_by(Asset.tag_number.asc())
         
         # Execute query
-        print(f"[filtered_assets] Executing query...")
+        current_app.logger.debug("[filtered_assets] Executing query...")
         results = query.all()
-        print(f"[filtered_assets] Query returned {len(results)} results")
+        current_app.logger.debug(f"[filtered_assets] Query returned {len(results)} results")
         
         # Format data for DataTables
         data = []
@@ -325,7 +325,7 @@ def filtered_assets():
                 
                 # Skip if asset is None (shouldn't happen with proper joins, but safety check)
                 if asset is None:
-                    print("Warning: Found None asset in results, skipping")
+                    current_app.logger.warning("Found None asset in results, skipping")
                     continue
                 
                 # Handle employee name - combine first and last name, or show Unassigned
@@ -355,15 +355,15 @@ def filtered_assets():
                 processed_count += 1
             except Exception as e:
                 error_count += 1
-                print(f"[filtered_assets] Error processing asset result {error_count}: {e}")
-                print(f"[filtered_assets] Result tuple type: {type(result)}, length: {len(result) if hasattr(result, '__len__') else 'N/A'}")
+                current_app.logger.error(f"[filtered_assets] Error processing asset result {error_count}: {e}")
+                current_app.logger.debug(f"[filtered_assets] Result tuple type: {type(result)}, length: {len(result) if hasattr(result, '__len__') else 'N/A'}")
                 import traceback
                 traceback.print_exc()
                 # Skip this asset but continue with others
                 continue
         
-        print(f"[filtered_assets] Processed {processed_count} assets successfully, {error_count} errors")
-        print(f"[filtered_assets] Returning {len(data)} assets to client")
+        current_app.logger.debug(f"[filtered_assets] Processed {processed_count} assets successfully, {error_count} errors")
+        current_app.logger.debug(f"[filtered_assets] Returning {len(data)} assets to client")
         
         # Refresh session to keep it alive (prevent expiration during long page views)
         from flask import session
@@ -379,7 +379,7 @@ def filtered_assets():
         })
         
     except Exception as e:
-        print(f"[filtered_assets] CRITICAL ERROR: {e}")
+        current_app.logger.error(f"[filtered_assets] CRITICAL ERROR: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
@@ -496,7 +496,7 @@ def new_asset():
                 
                 # Log IP address for audit trail
                 client_ip = get_client_ip()
-                print(f"Asset created: {asset_tag} by {current_user.username} from IP: {client_ip}")
+                current_app.logger.info(f"Asset created: {asset_tag} by {current_user.username} from IP: {client_ip}")
                 
                 # Commit the history
                 db.session.commit()
@@ -511,7 +511,7 @@ def new_asset():
                             return receipt_response
                 
             else:
-                print(f"Warning: Could not find asset with ID {asset_id} for history logging")
+                current_app.logger.warning(f"Could not find asset with ID {asset_id} for history logging")
             
             flash('Asset added successfully.', 'success')
             return redirect(url_for('asset_management.list_assets', refresh='true'))
@@ -560,7 +560,7 @@ def checkout_asset(asset_id):
         
         # Log IP address for audit trail
         client_ip = get_client_ip()
-        print(f"Asset checked out: {asset.tag_number} to {employee.full_name} by {current_user.username} from IP: {client_ip}")
+        current_app.logger.info(f"Asset checked out: {asset.tag_number} to {employee.full_name} by {current_user.username} from IP: {client_ip}")
         
         # Commit all changes together
         db.session.commit()
@@ -576,7 +576,7 @@ def checkout_asset(asset_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error during checkout: {str(e)}")
+        current_app.logger.error(f"Error during checkout: {str(e)}")
         flash(f'Error during checkout: {str(e)}', 'danger')
         return redirect(url_for('asset_management.list_assets'))
 
@@ -603,7 +603,7 @@ def checkin_asset(asset_id):
         
         # Log IP address for audit trail
         client_ip = get_client_ip()
-        print(f"Asset checked in: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
+        current_app.logger.info(f"Asset checked in: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
         
         # Commit all changes together
         db.session.commit()
@@ -620,7 +620,7 @@ def checkin_asset(asset_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error during check-in: {str(e)}")
+        current_app.logger.error(f"Error during check-in: {str(e)}")
         flash(f'Error during check-in: {str(e)}', 'danger')
         return redirect(url_for('asset_management.asset_detail', asset_id=asset_id))
 
@@ -699,7 +699,7 @@ def audit_asset(asset_id):
             
             # Log IP address for audit trail
             client_ip = get_client_ip()
-            print(f"Asset audited: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
+            current_app.logger.info(f"Asset audited: {asset.tag_number} by {current_user.username} from IP: {client_ip}")
             
             # Commit changes
             db.session.commit()
@@ -714,7 +714,7 @@ def audit_asset(asset_id):
             
         except Exception as e:
             db.session.rollback()
-            print(f"Error during audit: {str(e)}")
+            current_app.logger.error(f"Error during audit: {str(e)}")
             flash(f'Error during audit: {str(e)}', 'danger')
             return redirect(url_for('asset_management.audit_asset', asset_id=asset_id))
     
@@ -839,7 +839,7 @@ def remove_maintenance(asset_id):
                 asset.status = 'Available'
 
         except Exception as e:
-            print(f"Error determining previous status: {e}")
+            current_app.logger.error(f"Error determining previous status: {e}")
             asset.status = 'Available'
 
         # Flush so the status update is written before we add history (ensures DB sees new status)
@@ -1194,7 +1194,7 @@ def bulk_assign():
                 
             except Exception as e:
                 failed_assignments.append(f"{asset.tag_number}: {str(e)}")
-                print(f"Error assigning asset {asset.tag_number}: {e}")
+                current_app.logger.error(f"Error assigning asset {asset.tag_number}: {e}")
         
         # Commit all changes
         try:
@@ -1234,7 +1234,7 @@ def bulk_assign():
                 return response
                 
             except Exception as e:
-                print(f"Error generating bulk receipt: {e}")
+                current_app.logger.error(f"Error generating bulk receipt: {e}")
                 flash('Assets checked out successfully, but receipt generation failed.', 'warning')
             
             return redirect(url_for('asset_management.list_assets'))
@@ -1310,7 +1310,7 @@ def bulk_checkin():
                 
             except Exception as e:
                 failed_checkins.append(f"{asset.tag_number}: {str(e)}")
-                print(f"Error checking in asset {asset.tag_number}: {e}")
+                current_app.logger.error(f"Error checking in asset {asset.tag_number}: {e}")
         
         # Commit all changes
         try:
@@ -1350,7 +1350,7 @@ def bulk_checkin():
                 return response
                 
             except Exception as e:
-                print(f"Error generating bulk receipt: {e}")
+                current_app.logger.error(f"Error generating bulk receipt: {e}")
                 flash('Assets checked in successfully, but receipt generation failed.', 'warning')
             
             return redirect(url_for('asset_management.list_assets'))
@@ -1744,14 +1744,14 @@ def asset_history_api(asset_id):
                 }
                 result.append(record)
             except Exception as e:
-                print(f"Error processing history record {h.id}: {e}")
+                current_app.logger.error(f"Error processing history record {h.id}: {e}")
                 # Skip this record but continue with others
                 continue
         
         return jsonify(result)
         
     except Exception as e:
-        print(f"Error in asset history API: {e}")
+        current_app.logger.error(f"Error in asset history API: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Failed to load asset history'}), 500
@@ -1795,7 +1795,7 @@ def assign_asset(asset_id):
     asset = Asset.query.get_or_404(asset_id)
     if request.method == 'POST':
         # check what data we are receiving
-        print("request data: ", request.form)
+        current_app.logger.debug(f"Assign asset request data: {request.form}")
         assignee_type = request.form.get('assignee_type')
         # Get all assignee_id values and filter out empty strings
         assignee_ids = request.form.getlist('assignee_id')
@@ -1960,7 +1960,7 @@ def generate_checkin_receipt_route(asset_id):
             mimetype='application/pdf'
         )
     except Exception as e:
-        print(f"Error generating check-in receipt: {str(e)}")
+        current_app.logger.error(f"Error generating check-in receipt: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'An unexpected error occurred while generating the receipt.'

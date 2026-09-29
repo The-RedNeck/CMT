@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 from app.models.user import User
 from app.models.employee import Employee
@@ -269,8 +269,8 @@ def view_connections():
                              unique_ips=sorted(unique_ips))
     
     except Exception as e:
-        print(f"ERROR in view_connections: {str(e)}")
-        print(f"ERROR TYPE: {type(e)}")
+        current_app.logger.error(f"Error in view_connections: {str(e)}")
+        current_app.logger.error(f"Error type: {type(e)}")
         import traceback
         traceback.print_exc()
         flash(f'Error loading connections: {str(e)}', 'danger')
