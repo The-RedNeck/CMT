@@ -20,7 +20,6 @@ import tempfile
 import os
 from app.utils.export import export_to_excel
 from sqlalchemy import and_, or_, func
-import os
 
 bp = Blueprint('asset_management', __name__, url_prefix='/asset-management')
 
@@ -1228,6 +1227,14 @@ def api_add_location():
 @bp.route('/api/add-department', methods=['POST'])
 @login_required
 def api_add_department():
+    # Validate CSRF token
+    from flask_wtf.csrf import validate_csrf
+    from wtforms import ValidationError
+    try:
+        validate_csrf(request.form.get('csrf_token'))
+    except ValidationError:
+        return jsonify({'success': False, 'message': 'Invalid CSRF token.'}), 400
+    
     name = request.form.get('name')
     code = request.form.get('code')
     if not name or not code:
