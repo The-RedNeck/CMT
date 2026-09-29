@@ -18,6 +18,13 @@ These items from the original review have been handled in code:
 
 HTML form posts were not given a second manual CSRF check. Those pages already post normal forms. Adding a second check here, without the templates, would reject submits that do not include a field named `csrf_token`.
 
+These follow-up defects found while running the app are also fixed:
+
+- Asset and employee text search escape `%` and `_` inside each token, so a search for `%` is no longer a match-all.
+- Employee search filters `Employee.location_id`. Departments do not have a location column.
+- The new-employee form redirects back to the employee list. JSON is returned only when the request asks for `application/json`.
+- Department and asset dictionaries use an employee's full name. Employees do not have a `name` attribute.
+
 ## Critical Issues
 
 ### 1. Duplicate Import Statement

@@ -1,6 +1,5 @@
 from io import BytesIO
 
-import pytest
 from openpyxl import load_workbook
 
 from app import db
@@ -67,6 +66,7 @@ def test_checkout_and_checkin_return_pdf(client, admin, catalog):
         asset = db.session.get(Asset, asset_id)
         assert asset.status == 'Checked Out'
         assert asset.current_employee_id == catalog['employee_id']
+        assert asset.to_dict()['current_employee'] == 'Jane Doe'
 
     checkin = client.post(f'/asset-management/checkin/{asset_id}')
     assert checkin.mimetype == 'application/pdf'
@@ -162,7 +162,6 @@ def test_move_redirects_to_edit(client, admin, catalog):
     assert f"/asset-management/{catalog['asset_id']}/edit" in response.headers['Location']
 
 
-@pytest.mark.xfail(reason='Asset list search builds a LIKE pattern without escaping %, so a percent sign matches every asset.')
 def test_list_search_percent_is_not_match_all(client, admin, catalog):
     login(client)
     response = client.get('/asset-management/list?q=%')

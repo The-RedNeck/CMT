@@ -134,7 +134,6 @@ def _apply_asset_text_search_filters(query, search_term: str):
         token = raw.strip()
         if not token:
             continue
-        pat = f"%{token}%"
         assignee_full = func.trim(
             func.concat(
                 func.coalesce(Employee.first_name, ''),
@@ -144,12 +143,12 @@ def _apply_asset_text_search_filters(query, search_term: str):
         )
         query = query.filter(
             or_(
-                Asset.name.ilike(pat),
-                Asset.tag_number.ilike(pat),
-                Asset.serial_number.ilike(pat),
-                Employee.first_name.ilike(pat),
-                Employee.last_name.ilike(pat),
-                assignee_full.ilike(pat),
+                _ilike_contains(Asset.name, token),
+                _ilike_contains(Asset.tag_number, token),
+                _ilike_contains(Asset.serial_number, token),
+                _ilike_contains(Employee.first_name, token),
+                _ilike_contains(Employee.last_name, token),
+                _ilike_contains(assignee_full, token),
             )
         )
     return query

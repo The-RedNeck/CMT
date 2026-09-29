@@ -1,9 +1,8 @@
-import pytest
-
 from app import db
 from app.models.asset import Asset
 from app.models.department import Department
 from app.models.employee import Employee
+from app.models.location import Location
 
 from tests.conftest import login
 
@@ -18,6 +17,8 @@ def test_employee_pages_and_search(client, admin, catalog):
     assert search.get_json() == [{'id': catalog['employee_id'], 'text': 'Jane Doe'}]
     wildcard = client.get('/api/search/employees?q=%')
     assert wildcard.get_json() == []
+    listing = client.get('/list-forms/employees?q=%')
+    assert b'Jane Doe' not in listing.data
 
 
 def test_employee_with_assets_cannot_be_deleted(client, admin, catalog, app):
@@ -65,7 +66,6 @@ def test_reports_status_and_location(client, admin, catalog):
     assert b'Asset status' in dashboard.data
 
 
-@pytest.mark.xfail(reason='Department.to_dict reads manager.name, but Employee only has first_name and last_name.')
 def test_department_dict_with_manager(app, catalog):
     with app.app_context():
         department = db.session.get(Department, catalog['department_id'])
@@ -75,14 +75,28 @@ def test_department_dict_with_manager(app, catalog):
         assert payload['manager'] == 'Jane Doe'
 
 
-@pytest.mark.xfail(reason='Employee search filters Department.location_id, but departments have no location column.')
-def test_employee_search_by_location(client, admin, catalog):
+def test_employee_search_by_location(client, admin, catalog, app):
+    with app.app_context():
+        other = Location(name='Warehouse', code='WH', is_active=True)
+        db.session.add(other)
+        db.session.flush()
+        outsider = Employee(
+            employee_id='E1002',
+            username='asmith',
+            email='alex.smith@example.com',
+            first_name='Alex',
+            last_name='Smith',
+            location_id=other.id,
+            is_active=True,
+        )
+        db.session.add(outsider)
+        db.session.commit()
     login(client)
     response = client.get(f"/api/search/employees?location_id={catalog['location_id']}")
     assert response.status_code == 200
+    assert response.get_json() == [{'id': catalog['employee_id'], 'text': 'Jane Doe'}]
 
 
-@pytest.mark.xfail(reason='Creating an employee from the HTML form is treated as AJAX because request.form is always set.')
 def test_new_employee_form_redirects(client, admin, catalog):
     login(client)
     response = client.post('/list-forms/employees/new', data={
@@ -93,3 +107,20 @@ def test_new_employee_form_redirects(client, admin, catalog):
         'username': 'slee',
     })
     assert response.status_code == 302
+    assert '/list-forms/employees' in response.headers['Location']
+    page = client.get('/list-forms/employees')
+    assert b'Sam Lee' in page.data
+
+
+def test_new_employee_json_when_requested(client, admin, catalog):
+    login(client)
+    response = client.post('/list-forms/employees/new', data={
+        'employee_id': 'E2003',
+        'first_name': 'Sam',
+        'last_name': 'Lee',
+        'email': 'sam.lee@example.com',
+        'username': 'slee',
+    }, headers={'Accept': 'application/json'})
+    assert response.status_code == 200
+    assert response.get_json()['success'] is True
+    assert response.get_json()['name'] == 'Sam Lee'

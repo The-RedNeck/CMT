@@ -24,6 +24,13 @@ bp = Blueprint('list_forms', __name__, url_prefix='/list-forms')
 PAGE_SIZE = 25
 
 
+def _wants_json_response():
+    """JSON only when the caller asked for it. A normal form post still has request.form."""
+    if request.is_json:
+        return True
+    return request.headers.get('Accept') == 'application/json'
+
+
 def _csrf_json_error():
     """Same CSRF rule as the asset-management add-* JSON endpoints."""
     from flask_wtf.csrf import validate_csrf
@@ -77,13 +84,12 @@ def _apply_employee_text_search(query, search_term: str):
         token = raw.strip()
         if not token:
             continue
-        pat = f"%{token}%"
         query = query.filter(
             or_(
-                Employee.employee_id.ilike(pat),
-                Employee.first_name.ilike(pat),
-                Employee.last_name.ilike(pat),
-                Employee.email.ilike(pat),
+                _ilike_contains(Employee.employee_id, token),
+                _ilike_contains(Employee.first_name, token),
+                _ilike_contains(Employee.last_name, token),
+                _ilike_contains(Employee.email, token),
             )
         )
     return query
@@ -312,12 +318,12 @@ def new_employee():
         is_admin = bool(False)
         # Only require minimal fields
         if not all([employee_id, first_name, last_name, email]):
-            if request.headers.get('Accept') == 'application/json' or request.is_json or request.form:
+            if _wants_json_response():
                 return jsonify({'success': False, 'message': 'Missing required fields.'}), 400
             flash('Please fill in all required fields.', 'danger')
             return render_template('list_forms/new_employee.html', departments=departments, locations=locations, department_options=department_options, location_options=location_options)
         if Employee.query.filter((Employee.username == username) | (Employee.email == email)).first():
-            if request.headers.get('Accept') == 'application/json' or request.is_json or request.form:
+            if _wants_json_response():
                 return jsonify({'success': False, 'message': 'Username or email already exists.'}), 400
             flash('Username or email already exists.', 'danger')
             return render_template('list_forms/new_employee.html', departments=departments, locations=locations, department_options=department_options, location_options=location_options)
@@ -356,12 +362,12 @@ def new_employee():
             db.session.rollback()
             error_msg = f'Failed to add employee: {str(e)}'
             current_app.logger.error(f"Employee creation error: {error_msg}")
-            if request.headers.get('Accept') == 'application/json' or request.is_json or request.form:
+            if _wants_json_response():
                 return jsonify({'success': False, 'message': error_msg}), 500
             flash(error_msg, 'danger')
             return render_template('list_forms/new_employee.html', departments=departments, locations=locations, department_options=department_options, location_options=location_options)
         # If AJAX/modal, return JSON
-        if request.headers.get('Accept') == 'application/json' or request.is_json or request.form:
+        if _wants_json_response():
             return jsonify({'success': True, 'id': employee.id, 'name': employee.full_name})
         flash('Employee added successfully.', 'success')
         return redirect(url_for('list_forms.employees'))
