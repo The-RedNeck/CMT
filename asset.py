@@ -3,6 +3,8 @@ from app import db
 
 class Asset(db.Model):
     __tablename__ = 'assets'
+    # Prevent SQLite from reusing IDs of deleted rows
+    __table_args__ = {'sqlite_autoincrement': True}
     id = db.Column(db.Integer, primary_key=True)
     tag_number = db.Column(db.String(50), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)

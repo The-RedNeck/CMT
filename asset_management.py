@@ -457,12 +457,9 @@ def new_asset():
             if not asset_name:
                 asset_name = request.form.get('name', '')
             
-            # Calculate next ID using Approach 3 from your solution
-            max_id = db.session.query(db.func.max(Asset.id)).scalar()
-            next_id = (max_id or 0) + 1
-            
+            # Create asset - let database handle auto-increment ID
+            # Note: Asset model uses sqlite_autoincrement=True to prevent ID reuse
             asset = Asset()
-            asset.id = next_id  # Explicitly set the ID
             asset.name = asset_name  # Set name from asset type
             asset.tag_number = tag_number
             asset.serial_number = serial_number
