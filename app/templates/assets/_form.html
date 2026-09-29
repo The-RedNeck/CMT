@@ -1,5 +1,22 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div class="row g-3">
+  {% if lock_identity %}
+  <div class="col-12">
+    <p class="text-secondary mb-0">Tag number, serial number, and type stay as they were when this asset was created. You can still update the other details, or dispose the asset.</p>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="tag_number">Tag number</label>
+    <input class="form-control" id="tag_number" value="{{ asset.tag_number }}" readonly>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="serial_number">Serial number</label>
+    <input class="form-control" id="serial_number" value="{{ asset.serial_number or '' }}" readonly>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="asset_type_name">Asset type</label>
+    <input class="form-control" id="asset_type_name" value="{{ asset.asset_type.name if asset.asset_type else '' }}" readonly>
+  </div>
+  {% else %}
   <div class="col-md-6">
     <label class="form-label" for="tag_number">Tag number</label>
     <input class="form-control" id="tag_number" name="tag_number" required value="{{ asset.tag_number if asset else '' }}">
@@ -17,6 +34,7 @@
       {% endfor %}
     </select>
   </div>
+  {% endif %}
   <div class="col-md-6">
     <label class="form-label" for="status">Status</label>
     <select class="form-select" id="status" name="status" required>

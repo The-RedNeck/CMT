@@ -4,6 +4,7 @@ from openpyxl import load_workbook
 
 from app import db
 from app.models.asset import Asset, AssetHistory
+from app.models.asset_type import AssetType
 from app.models.maintenance import Maintenance
 
 from tests.conftest import login
@@ -38,6 +39,53 @@ def test_create_asset_and_reject_negative_price(client, admin, catalog):
         history = AssetHistory.query.filter_by(asset_id=asset.id, action='created').one()
         assert history.changed_by == 'admin'
         assert history.ip_address
+
+
+def test_identity_fields_stay_fixed_after_create(client, admin, catalog, app):
+    login(client)
+    with app.app_context():
+        other_type = AssetType(name='Monitor', description='Display')
+        db.session.add(other_type)
+        db.session.commit()
+        other_type_id = other_type.id
+
+    asset_id = catalog['asset_id']
+    rejected = client.post(f'/asset-management/{asset_id}/edit', data={
+        'tag_number': 'BHSN-CHANGED',
+        'serial_number': 'SN-CHANGED',
+        'asset_type_id': other_type_id,
+        'status': 'Available',
+        'location_id': catalog['location_id'],
+        'purchase_price': '1200',
+        'description': 'Should not save',
+    })
+    assert b'cannot be changed' in rejected.data
+    with app.app_context():
+        asset = db.session.get(Asset, asset_id)
+        assert asset.tag_number == 'BHSN-T0000001'
+        assert asset.serial_number == 'SN-1001'
+        assert asset.asset_type_id == catalog['asset_type_id']
+        assert asset.description != 'Should not save'
+
+    updated = client.post(f'/asset-management/{asset_id}/edit', data={
+        'status': 'Available',
+        'location_id': catalog['location_id'],
+        'department_id': catalog['department_id'],
+        'purchase_price': '1200',
+        'description': 'Moved to the shelf',
+    }, follow_redirects=True)
+    assert b'updated successfully' in updated.data
+    with app.app_context():
+        asset = db.session.get(Asset, asset_id)
+        assert asset.description == 'Moved to the shelf'
+        assert asset.tag_number == 'BHSN-T0000001'
+        assert asset.serial_number == 'SN-1001'
+        assert asset.asset_type_id == catalog['asset_type_id']
+
+    page = client.get(f'/asset-management/{asset_id}/edit')
+    assert b'readonly' in page.data
+    assert b'name="tag_number"' not in page.data
+    assert b'name="asset_type_id"' not in page.data
 
 
 def test_duplicate_tag_is_rejected(client, admin, catalog):

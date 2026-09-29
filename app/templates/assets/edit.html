@@ -3,6 +3,7 @@
 {% block content %}
 <h1 class="h3 mb-3">Edit {{ asset.tag_number }}</h1>
 <form class="page-card p-4" method="post">
+  {% set lock_identity = true %}
   {% include "assets/_form.html" %}
   <button class="btn btn-accent mt-3" type="submit">Save changes</button>
 </form>

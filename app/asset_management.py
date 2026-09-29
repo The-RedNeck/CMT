@@ -109,6 +109,17 @@ def _parse_optional_cost(raw):
         return None, 'Cost cannot be negative.'
     return value, None
 
+def _identity_change_rejected(asset):
+    """Tag, serial, and type are fixed once the asset exists."""
+    if 'tag_number' in request.form and request.form.get('tag_number', '').strip() != (asset.tag_number or ''):
+        return True
+    if 'serial_number' in request.form and request.form.get('serial_number', '').strip() != (asset.serial_number or ''):
+        return True
+    if 'asset_type_id' in request.form and request.form.get('asset_type_id', '').strip() != ('' if asset.asset_type_id is None else str(asset.asset_type_id)):
+        return True
+    return False
+
+
 def _is_checkout_eligible(asset: Asset) -> bool:
     """
     Allow checkout when asset is truly available, or when it is in an
@@ -1584,46 +1595,12 @@ def edit_asset(asset_id):
     manufacturers = Manufacturer.query.order_by(Manufacturer.name.asc()).all()
     employees = Employee.query.filter_by(is_active=True).all()
     if request.method == 'POST':
-        # Get form data
-        new_tag_number = request.form.get('tag_number')
-        new_serial_number = request.form.get('serial_number')
-        
-        # Check if tag number is being changed and if it conflicts with another asset
-        if new_tag_number != asset.tag_number:
-            existing_asset = Asset.query.filter_by(tag_number=new_tag_number).first()
-            if existing_asset and existing_asset.id != asset.id:
-                flash(f'Tag number "{new_tag_number}" already exists. Please choose a different tag number.', 'danger')
-                return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
-        
-        # Check if serial number is being changed and if it conflicts with another asset
-        if new_serial_number and new_serial_number != asset.serial_number:
-            existing_asset = Asset.query.filter_by(serial_number=new_serial_number).first()
-            if existing_asset and existing_asset.id != asset.id:
-                flash(f'Serial number "{new_serial_number}" already exists. Please choose a different serial number.', 'danger')
-                return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
-        
-        # Update asset fields
-        asset.tag_number = new_tag_number
-        asset.serial_number = new_serial_number if new_serial_number else None
-        asset.status = request.form.get('status')
-        
-        # Validate and set asset_type_id
-        new_asset_type_id = request.form.get('asset_type_id')
-        if new_asset_type_id:
-            try:
-                new_asset_type_id = int(new_asset_type_id)
-                # Verify the asset type exists
-                if not AssetType.query.get(new_asset_type_id):
-                    flash('Invalid asset type selected.', 'danger')
-                    return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
-                asset.asset_type_id = new_asset_type_id
-            except (ValueError, TypeError):
-                flash('Invalid asset type selected.', 'danger')
-                return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
-        else:
-            flash('Asset type is required.', 'danger')
+        if _identity_change_rejected(asset):
+            flash('Tag number, serial number, and asset type cannot be changed after the asset is created.', 'danger')
             return render_template('assets/edit.html', asset=asset, asset_types=asset_types, locations=locations, departments=departments, manufacturers=manufacturers, employees=employees)
-        
+
+        asset.status = request.form.get('status')
+
         # Validate and set location_id
         location_id = request.form.get('location_id')
         if location_id:
@@ -1662,9 +1639,8 @@ def edit_asset(asset_id):
             # Clear employee assignment for other statuses
             asset.current_employee_id = None
         
-        # Automatically update the asset name based on the asset type
-        if new_asset_type_id:
-            asset.sync_name_with_type()
+        # Name follows the type chosen at creation. The type itself stays put.
+        asset.sync_name_with_type()
         
         # Handle purchase price validation
         purchase_price = request.form.get('purchase_price')
