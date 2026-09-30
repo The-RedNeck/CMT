@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Reports · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Reports</h1>
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="page-card p-3">
+      <h2 class="h5">Asset status</h2>
+      <div id="status-summary" class="text-secondary">Loading…</div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="page-card p-3">
+      <h2 class="h5">Assets by department</h2>
+      <div id="department-summary" class="text-secondary">Loading…</div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="page-card p-3">
+      <h2 class="h5">Maintenance costs</h2>
+      <div id="cost-summary" class="text-secondary">Loading…</div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="page-card p-3">
+      <h2 class="h5">Assets by location</h2>
+      <div id="location-summary" class="text-secondary">Loading…</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(response.statusText);
+  return response.json();
+}
+function lines(labels, values) {
+  if (!labels.length) return '<p class="mb-0">No data yet.</p>';
+  return '<ul class="mb-0">' + labels.map((label, index) => `<li>${label}: ${values[index]}</li>`).join('') + '</ul>';
+}
+loadJson('{{ url_for("reports.asset_status") }}').then(data => {
+  document.getElementById('status-summary').innerHTML = lines(data.labels, data.counts);
+}).catch(() => { document.getElementById('status-summary').textContent = 'Could not load status.'; });
+loadJson('{{ url_for("reports.department_assets") }}').then(data => {
+  document.getElementById('department-summary').innerHTML = lines(data.labels, data.counts);
+}).catch(() => { document.getElementById('department-summary').textContent = 'Could not load departments.'; });
+loadJson('{{ url_for("reports.maintenance_costs") }}').then(data => {
+  document.getElementById('cost-summary').innerHTML = lines(data.labels, data.costs);
+}).catch(() => { document.getElementById('cost-summary').textContent = 'Could not load costs.'; });
+loadJson('{{ url_for("reports.assets_by_location") }}').then(data => {
+  const target = document.getElementById('location-summary');
+  const entries = Object.entries(data || {});
+  if (!entries.length) {
+    target.textContent = 'No location data yet.';
+    return;
+  }
+  target.innerHTML = '<ul class="mb-0">' + entries.map(([name, info]) => {
+    const count = info.pagination ? info.pagination.total_assets : 0;
+    return `<li>${name}: ${count}</li>`;
+  }).join('') + '</ul>';
+}).catch(() => { document.getElementById('location-summary').textContent = 'Could not load locations.'; });
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Bulk checkout · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Bulk checkout</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label class="form-label" for="employee_id">Employee</label>
+    <select class="form-select" id="employee_id" name="employee_id" required>
+      <option value="">Select</option>
+      {% for employee in employees %}
+      <option value="{{ employee.id }}">{{ employee.full_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% for asset in assets %}
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" name="selected_assets[]" value="{{ asset.id }}" id="asset-{{ asset.id }}">
+    <label class="form-check-label" for="asset-{{ asset.id }}">{{ asset.tag_number }} — {{ asset.name }}</label>
+  </div>
+  {% else %}
+  <p class="text-secondary">No assets are available.</p>
+  {% endfor %}
+  <button class="btn btn-accent mt-3" type="submit">Check out selected</button>
+</form>
+{% endblock %}

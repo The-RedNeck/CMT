@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}New asset · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">New asset</h1>
+<form class="page-card p-4" method="post">
+  {% set asset = none %}
+  {% include "assets/_form.html" %}
+  <button class="btn btn-accent mt-3" type="submit">Save asset</button>
+</form>
+{% endblock %}

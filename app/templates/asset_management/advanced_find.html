@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Advanced find · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Advanced find</h1>
+<form class="page-card p-4 mb-3" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3">
+    <div class="col-md-4"><label class="form-label">Tag</label><input class="form-control" name="tag_number"></div>
+    <div class="col-md-4"><label class="form-label">Serial</label><input class="form-control" name="serial_number"></div>
+    <div class="col-md-4"><label class="form-label">Model</label><input class="form-control" name="model_number"></div>
+    <div class="col-md-4"><label class="form-label">Name</label><input class="form-control" name="name_search"></div>
+    <div class="col-md-4">
+      <label class="form-label">Status</label>
+      <select class="form-select" name="status"><option value="">Any</option>{% for status in status_options %}<option>{{ status }}</option>{% endfor %}</select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Type</label>
+      <select class="form-select" name="asset_type_id"><option value="">Any</option>{% for item in asset_types %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Location</label>
+      <select class="form-select" name="location_id"><option value="">Any</option>{% for item in locations %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Department</label>
+      <select class="form-select" name="department_id"><option value="">Any</option>{% for item in departments %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Manufacturer</label>
+      <select class="form-select" name="manufacturer_id"><option value="">Any</option>{% for item in manufacturers %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Employee</label>
+      <select class="form-select" name="employee_id"><option value="">Any</option>{% for item in employees %}<option value="{{ item.id }}">{{ item.full_name }}</option>{% endfor %}</select>
+    </div>
+    <div class="col-md-3"><label class="form-label">Min price</label><input class="form-control" name="price_min"></div>
+    <div class="col-md-3"><label class="form-label">Max price</label><input class="form-control" name="price_max"></div>
+  </div>
+  <button class="btn btn-accent mt-3" type="submit">Search</button>
+</form>
+{% if search_performed %}
+<p>{{ result_count }} result{{ '' if result_count == 1 else 's' }}</p>
+<div class="page-card p-3">
+  <ul class="mb-0">
+    {% for asset in results %}
+    <li><a href="{{ url_for('asset_management.asset_detail', asset_id=asset.id) }}">{{ asset.tag_number }}</a> {{ asset.name }}</li>
+    {% else %}
+    <li class="text-secondary">No assets matched.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}

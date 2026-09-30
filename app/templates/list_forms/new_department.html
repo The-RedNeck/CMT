@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}New department · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">New department</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3">
+    <div class="col-md-6"><label class="form-label">Name</label><input class="form-control" name="name" required></div>
+    <div class="col-md-6"><label class="form-label">Code</label><input class="form-control" name="code" required></div>
+    <div class="col-md-6"><label class="form-label">Cost center</label><input class="form-control" name="cost_center"></div>
+    <div class="col-md-6"><label class="form-label">Budget</label><input class="form-control" type="number" min="0" step="0.01" name="budget"></div>
+    <div class="col-md-6">
+      <label class="form-label">Manager</label>
+      <select class="form-select" name="manager_id">
+        <option value="">None</option>
+        {% for employee in employees %}<option value="{{ employee.id }}">{{ employee.full_name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Parent department</label>
+      <select class="form-select" name="parent_department_id">
+        <option value="">None</option>
+        {% for department in departments %}<option value="{{ department.id }}">{{ department.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3"></textarea></div>
+  </div>
+  <button class="btn btn-accent mt-3" type="submit">Save department</button>
+</form>
+{% endblock %}

@@ -34,6 +34,7 @@ A comprehensive Flask-based web application for enterprise asset and configurati
 - **User Management**: Create and manage user accounts
 - **Role-Based Access**: Super admin and regular user roles
 - **Progressive Lockout**: Security protection against brute force attacks
+- **Admin two-factor authentication**: Super admin sign-in requires an authenticator app after the password
 - **Audit Trail**: Track all system changes with IP logging
 
 ## Tech Stack
@@ -71,26 +72,39 @@ A comprehensive Flask-based web application for enterprise asset and configurati
    pip install -r requirements.txt
    ```
 
-4. **Set up environment variables**
-   Create a `.env` file in the root directory:
-   ```env
-   FLASK_APP=app
-   FLASK_ENV=development
-   SECRET_KEY=your-secret-key-here
-   DATABASE_URL=sqlite:///cmt.db
+4. **Run the application**
+   ```bash
+   python run.py
    ```
 
-5. **Initialize the database**
-   ```bash
-   flask db upgrade
-   ```
-
-6. **Run the application**
-   ```bash
-   flask run
-   ```
+   Tables are created on startup. A local demo account is added when the database is empty: `admin` / `admin123`.
 
    The application will be available at `http://localhost:5000`
+
+   Optional environment variables: `SECRET_KEY`, `DATABASE_URL`.
+
+   Super admin accounts set up an authenticator app the first time they sign in. Later sign-ins ask for that 6-digit code or a one-time recovery code. Other accounts still sign in with a password only.
+
+   Passwords are stored with scrypt (`N=131072`, `r=8`, `p=1`, about 128 MiB per hash). A successful sign-in rewrites an older hash with those parameters. Recovery codes are 80 random bits, hashed the same way, and each code works once.
+
+### Subscriptions
+
+Each account gets a 90-day trial stored as `trial_ends_at`. No card is required during the trial. When it ends, the app sends the user to Stripe Checkout. Access follows the Stripe webhook, not the browser return from Checkout.
+
+```
+STRIPE_SECRET_KEY
+STRIPE_PRICE_ID
+STRIPE_WEBHOOK_SECRET
+STRIPE_PRICE_LABEL
+```
+
+`STRIPE_PRICE_LABEL` is optional text shown on the pricing page, such as `$49/month`. Create the price in the Stripe Dashboard, start in test mode, and subscribe the webhook endpoint `/stripe/webhook` to `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`.
+
+```bash
+stripe listen --forward-to localhost:5000/stripe/webhook
+```
+
+Existing accounts with no trial date are given 90 days the next time the app starts.
 
 ### Production Deployment
 
@@ -110,28 +124,24 @@ waitress-serve --port=8000 app:create_app
 
 ```
 CMT/
-├── __init__.py              # Package initialization with model imports
-├── administration.py        # User management routes
-├── asset.py                 # Asset model definition
-├── asset_management.py      # Core asset management routes
-├── asset_type.py            # Asset type model
-├── auth.py                  # Authentication routes
-├── available_tag_number.py  # Tag number pool model
-├── department.py            # Department model
-├── employee.py              # Employee model
-├── labels.py                # Label printing utilities
-├── list_forms.py            # CRUD forms for entities
-├── location.py              # Location model
-├── maintenance.py           # Maintenance record model
-├── manufacturer.py          # Manufacturer model
-├── new.py                   # New entity creation routes
-├── reports.py               # Reporting and analytics routes
-├── search.py                # Search API endpoints
-├── tag_number.py            # Tag number generation
-├── user.py                  # User authentication model
-├── README.md                # This file
-├── BUGS.md                  # Known issues and bug analysis
-└── .gitignore               # Git ignore rules
+├── run.py                   # Development entry point
+├── app/
+│   ├── __init__.py          # Application factory
+│   ├── auth.py              # Authentication routes
+│   ├── billing.py           # Trial, Stripe Checkout, and webhooks
+│   ├── asset_management.py  # Core asset management routes
+│   ├── administration.py    # User management routes
+│   ├── list_forms.py        # CRUD forms for entities
+│   ├── reports.py           # Reporting and analytics routes
+│   ├── search.py            # Search API endpoints
+│   ├── tag_number.py        # Tag number generation
+│   ├── models/              # SQLAlchemy models
+│   ├── utils/               # History, export, receipts, input checks
+│   └── templates/           # HTML pages
+├── tests/                   # pytest suite
+├── README.md
+├── BUGS.md
+└── requirements.txt
 ```
 
 ## API Endpoints
@@ -250,13 +260,7 @@ SQLALCHEMY_TRACK_MODIFICATIONS = False
 
 Run the test suite:
 ```bash
-# Run all tests
 pytest
-
-# Run with coverage
-pytest --cov=app --cov-report=html
-
-# Run specific test file
 pytest tests/test_assets.py
 ```
 

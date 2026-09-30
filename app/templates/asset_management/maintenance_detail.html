@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Maintenance {{ maintenance.id }} · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Maintenance record {{ maintenance.id }}</h1>
+<div class="page-card p-4">
+  <p><strong>Type:</strong> {{ maintenance.maintenance_type }}</p>
+  <p><strong>Priority:</strong> {{ maintenance.priority }}</p>
+  <p><strong>Start:</strong> {{ maintenance.start_date }}</p>
+  <p><strong>Cost:</strong> {{ maintenance.cost if maintenance.cost is not none else '—' }}</p>
+  <p class="mb-0"><strong>Description:</strong> {{ maintenance.description }}</p>
+</div>
+{% endblock %}

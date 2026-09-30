@@ -1,0 +1,58 @@
+:root {
+  --cmt-ink: #1c2430;
+  --cmt-muted: #5c6b7a;
+  --cmt-line: #d7dee6;
+  --cmt-accent: #0f6e6b;
+  --cmt-accent-dark: #0b5552;
+  --cmt-bg: #f4f6f8;
+}
+
+body {
+  background: var(--cmt-bg);
+  color: var(--cmt-ink);
+}
+
+.app-nav {
+  background: #16302e;
+}
+
+.app-nav .navbar-brand,
+.app-nav .nav-link {
+  color: #f3f7f6;
+}
+
+.app-nav .nav-link:hover,
+.app-nav .nav-link.active {
+  color: #fff;
+}
+
+.page-card {
+  background: #fff;
+  border: 1px solid var(--cmt-line);
+  border-radius: 12px;
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 650;
+  color: var(--cmt-accent-dark);
+}
+
+.btn-accent {
+  background: var(--cmt-accent);
+  border-color: var(--cmt-accent);
+  color: #fff;
+}
+
+.btn-accent:hover {
+  background: var(--cmt-accent-dark);
+  border-color: var(--cmt-accent-dark);
+  color: #fff;
+}
+
+.table thead th {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cmt-muted);
+}

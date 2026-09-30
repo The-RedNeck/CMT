@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Connections · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Recent connections</h1>
+<p class="text-secondary">Unique addresses: {{ unique_ips|join(', ') if unique_ips else 'none yet' }}</p>
+<div class="page-card p-3">
+  <table class="table mb-0">
+    <thead><tr><th>When</th><th>Type</th><th>Action</th><th>Details</th><th>User</th><th>IP</th></tr></thead>
+    <tbody>
+      {% for record in history %}
+      <tr>
+        <td>{{ record.timestamp }}</td>
+        <td>{{ record.type }}</td>
+        <td>{{ record.action }}</td>
+        <td>{{ record.details }}</td>
+        <td>{{ record.user }}</td>
+        <td>{{ record.ip_address }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-secondary">No logged connections yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

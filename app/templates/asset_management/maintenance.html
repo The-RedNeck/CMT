@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Edit maintenance · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Edit maintenance for {{ asset.tag_number }}</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% include "maintenance/_fields.html" %}
+  <button class="btn btn-accent mt-3" type="submit">Save</button>
+</form>
+{% endblock %}

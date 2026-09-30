@@ -1,9 +1,1 @@
-from app import db
-from app.models.user import User
-from app.models.asset import Asset
-from app.models.asset_type import AssetType
-from app.models.department import Department
-from app.models.employee import Employee
-from app.models.location import Location
-from app.models.maintenance import Maintenance
-from app.models.manufacturer import Manufacturer
+"""Project root. The Flask application package is ``app``."""

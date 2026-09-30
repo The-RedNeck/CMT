@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Print labels · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Print labels</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <label class="form-label">Size</label>
+      <select class="form-select" name="label_size">
+        {% for size in ['small', 'medium', 'large'] %}
+        <option value="{{ size }}" {% if label_size == size %}selected{% endif %}>{{ size }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Type</label>
+      <select class="form-select" name="label_type">
+        {% for kind in ['standard', 'barcode'] %}
+        <option value="{{ kind }}" {% if label_type == kind %}selected{% endif %}>{{ kind }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Copies</label>
+      <input class="form-control" name="copies" type="number" min="1" value="{{ copies or 1 }}">
+    </div>
+  </div>
+  {% for asset in assets %}
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" name="selected_assets[]" value="{{ asset.id }}" id="label-{{ asset.id }}" {% if selected_assets is defined and asset.id|string in selected_assets %}checked{% endif %}>
+    <label class="form-check-label" for="label-{{ asset.id }}">{{ asset.tag_number }} — {{ asset.name }}</label>
+  </div>
+  {% endfor %}
+  <button class="btn btn-accent mt-3" type="submit">Preview selection</button>
+</form>
+{% endblock %}

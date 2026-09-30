@@ -61,7 +61,7 @@ class Asset(db.Model):
             'manufacturer': self.manufacturer.name if self.manufacturer else None,
             'location': self.location.name if self.location else None,
             'department': self.department.name if self.department else None,
-            'current_employee': self.current_employee.name if self.current_employee else None
+            'current_employee': self.current_employee.full_name if self.current_employee else None
         }
     
     def is_assigned(self):

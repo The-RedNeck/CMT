@@ -5,7 +5,6 @@ import time
 from flask import Blueprint, request, jsonify
 from flask_login import login_required
 from app.models.employee import Employee
-from app.models.department import Department
 from app.utils.security import sanitize_search_term, validate_integer_param
 
 bp = Blueprint('search', __name__, url_prefix='/api/search')
@@ -57,7 +56,7 @@ def search_employees():
     if department_id:
         query = query.filter(Employee.department_id == department_id)
     if location_id:
-        query = query.join(Employee.department).filter(Department.location_id == location_id)
+        query = query.filter(Employee.location_id == location_id)
     employees = query.limit(20).all()
     return jsonify([
         {'id': e.id, 'text': f'{e.first_name} {e.last_name}'}

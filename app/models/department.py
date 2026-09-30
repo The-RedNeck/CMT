@@ -35,7 +35,7 @@ class Department(db.Model):
             'name': self.name,
             'code': self.code,
             'description': self.description,
-            'manager': self.manager.name if self.manager else None,
+            'manager': self.manager.full_name if self.manager else None,
             'parent_department': self.parent_department.name if self.parent_department else None,
             'cost_center': self.cost_center,
             'budget': self.budget,

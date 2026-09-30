@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Edit asset type · CMT{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Edit {{ asset_type.name }}</h1>
+<form class="page-card p-4" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3"><label class="form-label">Name</label><input class="form-control" name="name" required value="{{ asset_type.name }}"></div>
+  <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3">{{ asset_type.description or '' }}</textarea></div>
+  <button class="btn btn-accent" type="submit">Save type</button>
+</form>
+{% endblock %}
