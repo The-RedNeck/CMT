@@ -9,10 +9,9 @@ import secrets
 import pyotp
 import qrcode
 from sqlalchemy import inspect, text
-from werkzeug.security import check_password_hash, generate_password_hash
-
 from app import db
 from app.models.user import User
+from app.passwords import hash_secret, verify_secret
 
 _RECOVERY_COUNT = 8
 
@@ -64,15 +63,16 @@ def _normalize_recovery(code):
 
 
 def new_recovery_codes():
+    """Eight codes, 80 bits each, shown in groups of four."""
     codes = []
     for _ in range(_RECOVERY_COUNT):
-        raw = secrets.token_hex(4).upper()
-        codes.append(f'{raw[:4]}-{raw[4:]}')
+        raw = secrets.token_hex(10).upper()
+        codes.append('-'.join(raw[i:i + 4] for i in range(0, len(raw), 4)))
     return codes
 
 
 def store_recovery_codes(user, codes):
-    hashes = [generate_password_hash(_normalize_recovery(code)) for code in codes]
+    hashes = [hash_secret(_normalize_recovery(code)) for code in codes]
     user.mfa_recovery_hashes = json.dumps(hashes)
 
 
@@ -87,7 +87,7 @@ def consume_recovery_code(user, code):
     kept = []
     matched = False
     for hashed in hashes:
-        if not matched and check_password_hash(hashed, normalized):
+        if not matched and verify_secret(hashed, normalized):
             matched = True
             continue
         kept.append(hashed)

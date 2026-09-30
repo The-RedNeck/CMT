@@ -85,6 +85,8 @@ A comprehensive Flask-based web application for enterprise asset and configurati
 
    Super admin accounts set up an authenticator app the first time they sign in. Later sign-ins ask for that 6-digit code or a one-time recovery code. Other accounts still sign in with a password only.
 
+   Passwords are stored with scrypt (`N=131072`, `r=8`, `p=1`, about 128 MiB per hash). A successful sign-in rewrites an older hash with those parameters. Recovery codes are 80 random bits, hashed the same way, and each code works once.
+
 ### Subscriptions
 
 Each account gets a 90-day trial stored as `trial_ends_at`. No card is required during the trial. When it ends, the app sends the user to Stripe Checkout. Access follows the Stripe webhook, not the browser return from Checkout.

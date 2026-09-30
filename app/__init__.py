@@ -20,6 +20,7 @@ def create_app(config_overrides=None):
 
     app.config.from_mapping(
         SECRET_KEY=os.environ.get('SECRET_KEY', 'dev-secret-change-me'),
+        PASSWORD_HASH_METHOD='scrypt:131072:8:1',
         SQLALCHEMY_DATABASE_URI=os.environ.get('DATABASE_URL', 'sqlite:///' + database_path),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         WTF_CSRF_ENABLED=True,
@@ -36,6 +37,9 @@ def create_app(config_overrides=None):
     )
     if config_overrides:
         app.config.update(config_overrides)
+    # The test suite signs in often. Keep production on the strong parameters.
+    if app.config.get('TESTING') and (not config_overrides or 'PASSWORD_HASH_METHOD' not in config_overrides):
+        app.config['PASSWORD_HASH_METHOD'] = 'scrypt:32768:8:1'
 
     if app.config.get('TESTING') and app.config['SQLALCHEMY_DATABASE_URI'] == 'sqlite:///:memory:':
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
@@ -115,8 +119,10 @@ def create_app(config_overrides=None):
         db.create_all()
         from app.billing import ensure_subscription_columns
         from app.mfa import ensure_mfa_columns
+        from app.passwords import ensure_password_hash_storage
         ensure_mfa_columns()
         ensure_subscription_columns()
+        ensure_password_hash_storage()
         if not app.config.get('TESTING'):
             from app.seed import seed_demo_data
             seed_demo_data()
