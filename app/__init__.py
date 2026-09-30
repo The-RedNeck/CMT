@@ -7,6 +7,10 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.pool import StaticPool
 
+def _env_flag(name):
+    return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes')
+
+
 db = SQLAlchemy()
 login_manager = LoginManager()
 csrf = CSRFProtect()
@@ -24,6 +28,12 @@ def create_app(config_overrides=None):
         SQLALCHEMY_DATABASE_URI=os.environ.get('DATABASE_URL', 'sqlite:///' + database_path),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         WTF_CSRF_ENABLED=True,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Lax',
+        REMEMBER_COOKIE_HTTPONLY=True,
+        REMEMBER_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_SECURE=_env_flag('SESSION_COOKIE_SECURE'),
+        REMEMBER_COOKIE_SECURE=_env_flag('SESSION_COOKIE_SECURE'),
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         MAX_LOGIN_ATTEMPTS_BEFORE_PROGRESSIVE_LOCKOUT=20,
         LOGIN_ATTEMPT_LOCKOUT_THRESHOLDS=[1, 2, 3, 4, 5],
@@ -60,6 +70,7 @@ def create_app(config_overrides=None):
         return db.session.get(User, int(user_id))
 
     from app.administration import bp as administration_bp
+    from app.attack import bp as attack_bp
     from app.asset_management import bp as asset_management_bp
     from app.auth import bp as auth_bp
     from app.billing import bp as billing_bp
@@ -75,6 +86,7 @@ def create_app(config_overrides=None):
     app.register_blueprint(billing_bp)
     app.register_blueprint(asset_management_bp)
     app.register_blueprint(administration_bp)
+    app.register_blueprint(attack_bp)
     app.register_blueprint(list_forms_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(search_bp)

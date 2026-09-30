@@ -13,6 +13,7 @@ from app import db
 
 # N=131072, r=8, p=1. Tests override this with a cheaper method.
 DEFAULT_PASSWORD_METHOD = 'scrypt:131072:8:1'
+MIN_PASSWORD_LENGTH = 12
 
 
 def password_method():

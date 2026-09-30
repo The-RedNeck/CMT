@@ -1,5 +1,6 @@
 """Local demo records so the application can be clicked through after a fresh start."""
 
+import os
 from datetime import date
 
 from app import db
@@ -13,6 +14,8 @@ from app.models.user import User
 
 
 def seed_demo_data():
+    if os.environ.get('CMT_DISABLE_DEMO_SEED', '').strip().lower() in ('1', 'true', 'yes'):
+        return
     if User.query.first():
         return
 
