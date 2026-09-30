@@ -88,6 +88,19 @@ def test_regular_user_skips_mfa(client, app):
     assert b'Set up two-factor' not in response.data
 
 
+def test_signed_in_admin_can_finish_setup(client, app, admin):
+    with client.session_transaction() as sess:
+        sess['_user_id'] = str(admin)
+        sess['_fresh'] = True
+    page = client.get('/auth/mfa/setup')
+    secret = _secret_from(page)
+    enrolled = client.post('/auth/mfa/setup', data={'code': pyotp.TOTP(secret).now()})
+    assert enrolled.status_code == 200
+    assert b'Save your recovery codes' in enrolled.data
+    home = client.get('/')
+    assert b'Overview' in home.data
+
+
 def test_existing_admin_session_must_enroll(client, admin):
     with client.session_transaction() as sess:
         sess['_user_id'] = str(admin)

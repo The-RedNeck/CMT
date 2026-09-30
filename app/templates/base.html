@@ -17,7 +17,7 @@
       </button>
       <div class="collapse navbar-collapse" id="nav">
         <ul class="navbar-nav me-auto">
-          {% if current_user.has_access %}
+          {% if current_user.has_access and (not current_user.is_super_admin or current_user.mfa_enabled) %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('asset_management.list_assets') }}">Assets</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('list_forms.employees') }}">Employees</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('list_forms.departments') }}">Departments</a></li>
@@ -26,8 +26,8 @@
           {% if current_user.is_super_admin %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('administration.list_users') }}">Users</a></li>
           {% endif %}
-          {% endif %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('billing.pricing') }}">Billing</a></li>
+          {% endif %}
         </ul>
         <span class="navbar-text me-3">{{ current_user.username }}</span>
         <a class="btn btn-sm btn-outline-light" href="{{ url_for('auth.logout') }}">Log out</a>

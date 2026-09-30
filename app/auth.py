@@ -91,7 +91,13 @@ def _complete_login(user):
     session.permanent = True
     session.pop('mfa_user_id', None)
     session.pop('mfa_setup_secret', None)
-    login_user(user, remember=True)
+    # Calling login_user again for someone who is already signed in
+    # makes the current-user proxy recurse on the next template render.
+    already_signed_in = (
+        current_user.is_authenticated and str(current_user.get_id()) == str(user.id)
+    )
+    if not already_signed_in:
+        login_user(user, remember=True)
     flash('Logged in successfully.', 'success')
     return redirect(url_for('home'))
 

@@ -115,8 +115,8 @@ def create_app(config_overrides=None):
         db.create_all()
         from app.billing import ensure_subscription_columns
         from app.mfa import ensure_mfa_columns
-        ensure_subscription_columns()
         ensure_mfa_columns()
+        ensure_subscription_columns()
         if not app.config.get('TESTING'):
             from app.seed import seed_demo_data
             seed_demo_data()
