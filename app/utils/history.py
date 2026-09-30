@@ -6,8 +6,14 @@ from app import db
 
 
 def get_client_ip():
-    forwarded = request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown'
-    return forwarded.split(',')[0].strip()
+    """Client address. X-Forwarded-For is used only when a trusted proxy is configured."""
+    from flask import current_app
+
+    if current_app and current_app.config.get('TRUST_PROXY'):
+        forwarded = request.headers.get('X-Forwarded-For')
+        if forwarded:
+            return forwarded.split(',')[0].strip()[:64]
+    return (request.remote_addr or 'unknown')[:64]
 
 
 def log_asset_history(asset, action, changed_by=None):

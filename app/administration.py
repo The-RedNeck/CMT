@@ -1,4 +1,7 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
+from datetime import datetime, timedelta, timezone
+from functools import wraps
+
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, session
 from flask_login import login_required, current_user
 from app.models.user import User
 from app.passwords import MIN_PASSWORD_LENGTH
@@ -9,6 +12,48 @@ from wtforms import StringField, PasswordField, BooleanField, HiddenField
 from wtforms.validators import DataRequired, Email, Length, EqualTo
 
 bp = Blueprint('administration', __name__, url_prefix='/administration')
+
+_REAUTH_MINUTES = 10
+
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _reauth_fresh():
+    raw = session.get('reauth_until')
+    if not raw:
+        return False
+    try:
+        expiry = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    return expiry > _utcnow()
+
+
+def mark_reauth():
+    session['reauth_until'] = (_utcnow() + timedelta(minutes=_REAUTH_MINUTES)).isoformat()
+    session.modified = True
+
+
+def _safe_admin_next(value):
+    if not value or not value.startswith('/administration/') or value.startswith('//'):
+        return url_for('administration.list_users')
+    if '\\' in value or '\n' in value or '\r' in value:
+        return url_for('administration.list_users')
+    return value
+
+
+def require_recent_password(view):
+    """Sensitive account changes ask for the password again."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if _reauth_fresh():
+            return view(*args, **kwargs)
+        flash('Enter your password again before this admin change.', 'warning')
+        target = request.path if request.method == 'GET' else url_for('administration.list_users')
+        return redirect(url_for('administration.confirm_password', next=target))
+    return wrapped
 
 class CreateUserForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
@@ -77,8 +122,42 @@ def list_users():
     toggle_form = ToggleUserActiveForm()
     return render_template('administration/users.html', users=users, delete_form=delete_form, toggle_form=toggle_form)
 
+
+@bp.route('/audit')
+@login_required
+def audit_log():
+    if not current_user.is_super_admin:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('home'))
+    from app.models.audit import AuditEvent
+    events = AuditEvent.query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(100).all()
+    return render_template('administration/audit.html', events=events)
+
+@bp.route('/confirm-password', methods=['GET', 'POST'])
+@login_required
+def confirm_password():
+    if not current_user.is_super_admin:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('home'))
+    nxt = _safe_admin_next(request.values.get('next'))
+    if request.method == 'POST':
+        from app.auth import _note_failed_attempt
+        password = request.form.get('password', '')
+        if current_user.check_password(password):
+            mark_reauth()
+            flash('Password confirmed. You can repeat the admin change for the next 10 minutes.', 'success')
+            return redirect(nxt)
+        flash(_note_failed_attempt(
+            current_user,
+            'Password was not accepted.',
+            detail='Admin password confirmation rejected.',
+        ), 'danger')
+    return render_template('administration/confirm_password.html', next_url=nxt)
+
+
 @bp.route('/users/create', methods=['GET', 'POST'])
 @login_required
+@require_recent_password
 def create_user():
     if not current_user.is_super_admin:
         flash('Access denied.', 'danger')
@@ -117,6 +196,7 @@ def create_user():
 
 @bp.route('/users/<int:user_id>/delete', methods=['POST'])
 @login_required
+@require_recent_password
 def delete_user(user_id):
     form = DeleteUserForm()
     if not current_user.is_super_admin:
@@ -133,6 +213,7 @@ def delete_user(user_id):
 
 @bp.route('/users/<int:user_id>/toggle-active', methods=['POST'])
 @login_required
+@require_recent_password
 def toggle_user_active(user_id):
     form = ToggleUserActiveForm()
     if not current_user.is_super_admin:
@@ -149,6 +230,7 @@ def toggle_user_active(user_id):
 
 @bp.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
 @login_required
+@require_recent_password
 def edit_user(user_id):
     if not current_user.is_super_admin:
         flash('Access denied.', 'danger')

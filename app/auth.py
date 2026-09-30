@@ -6,6 +6,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_user, logout_user, login_required, current_user
 from app.models.user import User
 from app import db
+from app.audit import record_audit
 from app.mfa import (
     consume_recovery_code,
     new_recovery_codes,
@@ -48,8 +49,21 @@ def _client_rate_limited(bucket, limit, window_seconds):
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
 
-def _note_failed_attempt(user, invalid_message='Invalid username or password.'):
+def _rotate_session(extra_keep=()):
+    """Drop pre-login session data and issue a new session id."""
+    keep = {'_user_id', '_fresh', '_id', '_remember', '_remember_seconds', 'reauth_until'}
+    keep.update(extra_keep)
+    kept = {key: session[key] for key in list(session.keys()) if key in keep}
+    session.clear()
+    session.update(kept)
+    session['_id'] = current_app.login_manager._session_identifier_generator()
+    session.permanent = True
+    session.modified = True
+
+
+def _note_failed_attempt(user, invalid_message='Invalid username or password.', detail='Password rejected.'):
     """Count a bad password or authenticator code and lock the account when it adds up."""
+    record_audit('login_failure', user=user, detail=detail)
     if user.failed_logins is None:
         user.failed_logins = 0
     user.failed_logins += 1
@@ -76,6 +90,7 @@ def _note_failed_attempt(user, invalid_message='Invalid username or password.'):
         user.lockout_count = lockout_count + 1
     except (AttributeError, Exception):
         pass
+    record_audit('account_locked', user=user, detail=f'Locked for {lockout_message}.')
     db.session.commit()
     return f'Account locked due to too many failed attempts. Try again in {lockout_message}.'
 
@@ -87,17 +102,22 @@ def _complete_login(user):
         user.lockout_count = 0
     if user.locked_until:
         user.locked_until = None
+    record_audit('login_success', user=user)
     db.session.commit()
-    session.permanent = True
-    session.pop('mfa_user_id', None)
-    session.pop('mfa_setup_secret', None)
     # Calling login_user again for someone who is already signed in
     # makes the current-user proxy recurse on the next template render.
     already_signed_in = (
         current_user.is_authenticated and str(current_user.get_id()) == str(user.id)
     )
+    _rotate_session()
+    session.pop('mfa_user_id', None)
+    session.pop('mfa_setup_secret', None)
     if not already_signed_in:
         login_user(user, remember=True)
+    else:
+        session['_user_id'] = str(user.id)
+        session['_fresh'] = True
+        session.permanent = True
     flash('Logged in successfully.', 'success')
     return redirect(url_for('home'))
 
@@ -192,12 +212,15 @@ def login():
                 return render_template('auth/login.html', form=form)
         if user:
             if not user.active:
+                record_audit('login_failure', user=user, detail='Deactivated account.')
+                db.session.commit()
                 flash('This account has been deactivated. Please contact an administrator.', 'danger')
                 return render_template('auth/login.html', form=form)
             if user.locked_until and user.locked_until > _utcnow():
                 flash('Account is locked. Try again later.', 'danger')
                 return render_template('auth/login.html', form=form)
             if user.check_password(form.password.data):
+                _rotate_session()
                 if user.is_super_admin:
                     session['mfa_user_id'] = user.id
                     session.permanent = True
@@ -208,11 +231,13 @@ def login():
             else:
                 flash(_note_failed_attempt(user), 'danger')
         else:
+            record_audit('login_failure', username=username, detail='Unknown username.')
+            db.session.commit()
             flash('Invalid username or password.', 'danger')
     return render_template('auth/login.html', form=form)
 
-def _reject_mfa_code(user):
-    message = _note_failed_attempt(user, 'That authentication code is not valid.')
+def _reject_mfa_code(user, detail='Authenticator code rejected.'):
+    message = _note_failed_attempt(user, 'That authentication code is not valid.', detail=detail)
     if user.locked_until and user.locked_until > _utcnow():
         session.pop('mfa_user_id', None)
         session.pop('mfa_setup_secret', None)
@@ -247,7 +272,7 @@ def mfa_setup():
             session.pop('mfa_setup_secret', None)
             _complete_login(user)
             return render_template('auth/mfa_recovery.html', codes=codes)
-        rejected = _reject_mfa_code(user)
+        rejected = _reject_mfa_code(user, detail='Authenticator setup code rejected.')
         if rejected is not None:
             return rejected
     uri = provisioning_uri(user, secret)
@@ -268,8 +293,10 @@ def mfa_verify():
             flash('Too many attempts. Try again in a minute.', 'danger')
             return redirect(url_for('auth.mfa_verify'))
         code = request.form.get('code', '')
-        if verify_totp(user.totp_secret, code) or consume_recovery_code(user, code):
-            db.session.commit()
+        if verify_totp(user.totp_secret, code):
+            return _complete_login(user)
+        if consume_recovery_code(user, code):
+            record_audit('recovery_code_used', user=user, detail='A one-time recovery code was accepted.')
             return _complete_login(user)
         rejected = _reject_mfa_code(user)
         if rejected is not None:
@@ -292,10 +319,20 @@ def mfa_reset():
     password = request.form.get('password', '')
     code = request.form.get('code', '')
     if not current_user.check_password(password):
-        flash('Password or authentication code was not accepted.', 'danger')
+        flash(_note_failed_attempt(
+            current_user,
+            'Password or authentication code was not accepted.',
+            detail='Authenticator reset password rejected.',
+        ), 'danger')
         return redirect(url_for('administration.profile'))
-    if not (verify_totp(current_user.totp_secret, code) or consume_recovery_code(current_user, code)):
-        flash('Password or authentication code was not accepted.', 'danger')
+    if consume_recovery_code(current_user, code):
+        record_audit('recovery_code_used', user=current_user, detail='A recovery code was used to reset the authenticator.')
+    elif not verify_totp(current_user.totp_secret, code):
+        flash(_note_failed_attempt(
+            current_user,
+            'Password or authentication code was not accepted.',
+            detail='Authenticator reset code rejected.',
+        ), 'danger')
         return redirect(url_for('administration.profile'))
     current_user.totp_secret = None
     current_user.mfa_enabled = False

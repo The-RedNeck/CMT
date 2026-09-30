@@ -68,6 +68,9 @@ def test_regular_user_cannot_open_user_admin(client, app):
 
 def test_admin_cannot_delete_self(client, admin):
     login(client)
+    blocked = client.post(f'/administration/users/{admin}/delete', follow_redirects=True)
+    assert b'Enter your password again' in blocked.data
+    client.post('/administration/confirm-password', data={'password': 'secret'})
     response = client.post(f'/administration/users/{admin}/delete', follow_redirects=True)
     assert b'Cannot delete your own account' in response.data
     with client.application.app_context():

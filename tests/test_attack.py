@@ -109,6 +109,8 @@ def test_regular_user_cannot_open_attack(client, app):
 
 def test_new_password_must_be_12_characters(client, admin):
     login(client)
+    confirmed = client.post('/administration/confirm-password', data={'password': 'secret'})
+    assert confirmed.status_code == 302
     rejected = client.post('/administration/users/create', data={
         'username': 'shortpw',
         'email': 'short@example.com',
