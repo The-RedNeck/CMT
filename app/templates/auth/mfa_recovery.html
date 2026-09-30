@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Recovery codes · CMT{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="page-card p-4">
+      <h1 class="h3">Save your recovery codes</h1>
+      <p class="text-secondary">Each code works once if you lose the authenticator app. Store them somewhere safe. They will not be shown again.</p>
+      <ul class="mb-4">
+        {% for code in codes %}
+        <li><code class="recovery-code">{{ code }}</code></li>
+        {% endfor %}
+      </ul>
+      <a class="btn btn-accent" href="{{ url_for('home') }}">Continue</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -34,6 +34,7 @@ A comprehensive Flask-based web application for enterprise asset and configurati
 - **User Management**: Create and manage user accounts
 - **Role-Based Access**: Super admin and regular user roles
 - **Progressive Lockout**: Security protection against brute force attacks
+- **Admin two-factor authentication**: Super admin sign-in requires an authenticator app after the password
 - **Audit Trail**: Track all system changes with IP logging
 
 ## Tech Stack
@@ -81,6 +82,8 @@ A comprehensive Flask-based web application for enterprise asset and configurati
    The application will be available at `http://localhost:5000`
 
    Optional environment variables: `SECRET_KEY`, `DATABASE_URL`.
+
+   Super admin accounts set up an authenticator app the first time they sign in. Later sign-ins ask for that 6-digit code or a one-time recovery code. Other accounts still sign in with a password only.
 
 ### Subscriptions
 

@@ -22,6 +22,22 @@
       <div class="mb-3">{{ password_form.confirm_password.label(class="form-label") }}{{ password_form.confirm_password(class="form-control") }}</div>
       <button class="btn btn-outline-secondary" type="submit">Change password</button>
     </form>
+    {% if current_user.is_super_admin and current_user.mfa_enabled %}
+    <h2 class="h3 mb-3 mt-4">Two-factor authentication</h2>
+    <form class="page-card p-4" method="post" action="{{ url_for('auth.mfa_reset') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <p class="text-secondary">An authenticator app is required for this admin account. To replace it, confirm your password and a current code.</p>
+      <div class="mb-3">
+        <label class="form-label" for="mfa-password">Current password</label>
+        <input class="form-control" id="mfa-password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="mfa-code">Authentication code</label>
+        <input class="form-control" id="mfa-code" name="code" autocomplete="one-time-code" required>
+      </div>
+      <button class="btn btn-outline-secondary" type="submit">Set up a new authenticator</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

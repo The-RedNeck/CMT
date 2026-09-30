@@ -16,7 +16,7 @@
       <tr>
         <td>{{ user.username }}</td>
         <td>{{ user.email }}</td>
-        <td>{{ 'Super admin' if user.is_super_admin else 'User' }}</td>
+        <td>{{ 'Super admin' if user.is_super_admin else 'User' }}{% if user.is_super_admin %} · {{ 'MFA on' if user.mfa_enabled else 'MFA off' }}{% endif %}</td>
         <td>{{ 'Active' if user.active else 'Inactive' }}</td>
         <td>{% if user.subscription_status == 'active' %}Subscribed{% elif user.in_trial %}Trial{% else %}Trial ended{% endif %}</td>
         <td class="text-end">

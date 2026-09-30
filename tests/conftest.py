@@ -1,6 +1,8 @@
 import os
+import re
 import tempfile
 
+import pyotp
 import pytest
 
 from app import create_app, db
@@ -108,8 +110,21 @@ def catalog(app):
 
 
 def login(client, username='admin', password='secret'):
-    return client.post(
+    """Sign in, completing authenticator setup or the code prompt for super admins."""
+    response = client.post(
         '/auth/login',
         data={'username': username, 'password': password},
         follow_redirects=True,
     )
+    secret_match = re.search(br'id="mfa-secret">([^<]+)', response.data)
+    if secret_match:
+        code = pyotp.TOTP(secret_match.group(1).decode()).now()
+        response = client.post('/auth/mfa/setup', data={'code': code}, follow_redirects=True)
+    if b'Save your recovery codes' in response.data:
+        response = client.get('/', follow_redirects=True)
+    elif b'Authentication code' in response.data and b'id="mfa-secret"' not in response.data:
+        with client.application.app_context():
+            user = User.query.filter_by(username=username).first()
+            code = pyotp.TOTP(user.totp_secret).now()
+        response = client.post('/auth/mfa/verify', data={'code': code}, follow_redirects=True)
+    return response
