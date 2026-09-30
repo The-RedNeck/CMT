@@ -87,7 +87,19 @@ A comprehensive Flask-based web application for enterprise asset and configurati
 
    Passwords are stored with scrypt (`N=131072`, `r=8`, `p=1`, about 128 MiB per hash). A successful sign-in rewrites an older hash with those parameters. Recovery codes are 80 random bits, hashed the same way, and each code works once. New passwords must be at least 12 characters. The local demo account is unchanged so you can still sign in and look around.
 
-   Set `SECRET_KEY` to a long random value before anyone else can reach the app. Set `SESSION_COOKIE_SECURE=1` when the site is served over HTTPS. Set `CMT_DISABLE_DEMO_SEED=1` so a new database does not create `admin` / `admin123`.
+   Set `SECRET_KEY` to a long random value before anyone else can reach the app. Set `CMT_DISABLE_DEMO_SEED=1` so a new database does not create `admin` / `admin123`.
+
+   Sessions last 2 hours. Cookies are HttpOnly, SameSite=Lax, and Secure. `python run.py` turns Secure off so the local demo can use `http://localhost:5000`. A production process does not, and it redirects HTTP to HTTPS. Put a free Let's Encrypt certificate in front of Gunicorn (Certbot with nginx or Caddy). If a proxy terminates TLS, set `TRUST_PROXY=1` so the app sees the original client and the HTTPS scheme.
+
+   Changing or deleting a user asks for the admin password again. That confirmation lasts 10 minutes. Sign-ins, failures, lockouts, and recovery-code use are listed under Users → Audit log. The log does not store passwords or codes.
+
+   Back up the database with encryption. Set `AGE_RECIPIENT` to an age public key, or `GPG_RECIPIENT` to a GPG key id:
+
+   ```bash
+   python scripts/backup_db.py
+   ```
+
+   On Postgres, give the app its own login role and do not use the owner role for the web process. The app role needs `CONNECT` on the database, `USAGE` on the schema, and `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the tables. Run migrations as the owner, not as that role.
 
 ### MITRE ATT&CK
 

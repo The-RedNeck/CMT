@@ -32,9 +32,11 @@ def create_app(config_overrides=None):
         SESSION_COOKIE_SAMESITE='Lax',
         REMEMBER_COOKIE_HTTPONLY=True,
         REMEMBER_COOKIE_SAMESITE='Lax',
-        SESSION_COOKIE_SECURE=_env_flag('SESSION_COOKIE_SECURE'),
-        REMEMBER_COOKIE_SECURE=_env_flag('SESSION_COOKIE_SECURE'),
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+        SESSION_COOKIE_SECURE=not _env_flag('CMT_DEV_HTTP'),
+        REMEMBER_COOKIE_SECURE=not _env_flag('CMT_DEV_HTTP'),
+        REMEMBER_COOKIE_DURATION=timedelta(hours=2),
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=2),
+        TRUST_PROXY=_env_flag('TRUST_PROXY'),
         MAX_LOGIN_ATTEMPTS_BEFORE_PROGRESSIVE_LOCKOUT=20,
         LOGIN_ATTEMPT_LOCKOUT_THRESHOLDS=[1, 2, 3, 4, 5],
         LOGIN_ATTEMPT_LOCKOUT_DURATIONS=[
@@ -50,12 +52,20 @@ def create_app(config_overrides=None):
     # The test suite signs in often. Keep production on the strong parameters.
     if app.config.get('TESTING') and (not config_overrides or 'PASSWORD_HASH_METHOD' not in config_overrides):
         app.config['PASSWORD_HASH_METHOD'] = 'scrypt:32768:8:1'
+    # The test client speaks plain HTTP. Production cookies stay Secure.
+    if app.config.get('TESTING') and (not config_overrides or 'SESSION_COOKIE_SECURE' not in config_overrides):
+        app.config['SESSION_COOKIE_SECURE'] = False
+        app.config['REMEMBER_COOKIE_SECURE'] = False
 
     if app.config.get('TESTING') and app.config['SQLALCHEMY_DATABASE_URI'] == 'sqlite:///:memory:':
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'connect_args': {'check_same_thread': False},
             'poolclass': StaticPool,
         }
+
+    if app.config.get('TRUST_PROXY'):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     db.init_app(app)
     login_manager.init_app(app)
@@ -94,6 +104,17 @@ def create_app(config_overrides=None):
     app.register_blueprint(labels_bp)
     app.register_blueprint(new_bp)
     csrf.exempt(app.view_functions['billing.webhook'])
+
+    @app.before_request
+    def require_https():
+        """Secure cookies are useless if the browser is still allowed to use HTTP."""
+        if not app.config.get('SESSION_COOKIE_SECURE'):
+            return None
+        if request.is_secure or request.endpoint in ('health', 'static'):
+            return None
+        if request.method in ('GET', 'HEAD'):
+            return redirect(request.url.replace('http://', 'https://', 1), code=301)
+        return 'HTTPS is required.', 400
 
     @app.before_request
     def require_active_subscription():

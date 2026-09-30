@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Audit log · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+  <h1 class="h3">Audit log</h1>
+  <a class="btn btn-outline-secondary" href="{{ url_for('administration.list_users') }}">Users</a>
+</div>
+<div class="page-card p-3">
+  {% if not events %}
+  <p class="mb-0">No sign-in events yet.</p>
+  {% else %}
+  <table class="table mb-0">
+    <thead><tr><th>When (UTC)</th><th>Event</th><th>Account</th><th>Address</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for event in events %}
+      <tr>
+        <td>{{ event.created_at.strftime('%Y-%m-%d %H:%M:%S') if event.created_at else '' }}</td>
+        <td>{{ event.event }}</td>
+        <td>{{ event.username or '' }}</td>
+        <td>{{ event.ip_address or '' }}</td>
+        <td>{{ event.detail or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

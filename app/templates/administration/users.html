@@ -4,6 +4,7 @@
 <div class="d-flex justify-content-between mb-3">
   <h1 class="h3">Users</h1>
   <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('administration.audit_log') }}">Audit log</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('administration.view_connections') }}">Connections</a>
     <a class="btn btn-accent" href="{{ url_for('administration.create_user') }}">New user</a>
   </div>

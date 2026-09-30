@@ -3,6 +3,7 @@ import re
 import pyotp
 
 from app import db
+from app.models.audit import AuditEvent
 from app.models.user import User
 
 from tests.conftest import login
@@ -75,6 +76,10 @@ def test_setup_then_code_and_recovery_code(client, app, admin):
     _password(client)
     reused = client.post('/auth/mfa/verify', data={'code': recovery[0].decode()})
     assert b'not valid' in reused.data
+    with app.app_context():
+        used = AuditEvent.query.filter_by(event='recovery_code_used').one()
+        assert used.username == 'admin'
+        assert recovery[0].decode() not in (used.detail or '')
 
 
 def test_regular_user_skips_mfa(client, app):
