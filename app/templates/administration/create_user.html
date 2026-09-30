@@ -6,7 +6,7 @@
   {{ form.hidden_tag() }}
   <div class="mb-3">{{ form.username.label(class="form-label") }}{{ form.username(class="form-control") }}</div>
   <div class="mb-3">{{ form.email.label(class="form-label") }}{{ form.email(class="form-control") }}</div>
-  <div class="mb-3">{{ form.password.label(class="form-label") }}{{ form.password(class="form-control") }}</div>
+  <div class="mb-3">{{ form.password.label(class="form-label") }}{{ form.password(class="form-control", autocomplete="new-password") }}<div class="form-text">At least 12 characters.</div></div>
   <div class="mb-3">{{ form.confirm.label(class="form-label") }}{{ form.confirm(class="form-control") }}</div>
   <div class="form-check mb-3">{{ form.is_super_admin(class="form-check-input") }}{{ form.is_super_admin.label(class="form-check-label") }}</div>
   {% for field in form %}{% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}{% endfor %}

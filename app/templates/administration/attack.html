@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}ATT&CK coverage · CMT{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3 gap-3">
+  <div>
+    <h1 class="h3 mb-1">MITRE ATT&CK</h1>
+    <p class="text-secondary mb-0">
+      Enterprise techniques from
+      <a href="https://attack.mitre.org/">attack.mitre.org</a>,
+      downloaded from the TAXII API at <code>{{ source_url }}</code>.
+    </p>
+  </div>
+  <form method="post" action="{{ url_for('attack.sync') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-accent" type="submit">Refresh from MITRE</button>
+  </form>
+</div>
+
+<div class="alert alert-secondary" role="status">
+  This checks techniques that apply to CMT. It is not a promise that the application is fully secure.
+  {% if sync %}
+  Saved Enterprise ATT&CK {{ sync.attack_version or 'release' }}
+  ({{ sync.technique_count }} techniques, {{ sync.tactic_count }} tactics)
+  {% if sync.synced_at %}at {{ sync.synced_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}.
+  {% else %}
+  The matrix has not been downloaded yet. Refresh to store the current Enterprise release.
+  {% endif %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-4"><div class="page-card p-3"><div class="text-secondary">Open gaps</div><div class="stat-value">{{ counts.gap }}</div></div></div>
+  <div class="col-4"><div class="page-card p-3"><div class="text-secondary">Partial</div><div class="stat-value">{{ counts.partial }}</div></div></div>
+  <div class="col-4"><div class="page-card p-3"><div class="text-secondary">In place</div><div class="stat-value">{{ counts.in_place }}</div></div></div>
+</div>
+
+<div class="page-card p-3 mb-4">
+  <h2 class="h5">Controls for this application</h2>
+  <table class="table mb-0">
+    <thead>
+      <tr><th>Technique</th><th>Status</th><th>What CMT does</th></tr>
+    </thead>
+    <tbody>
+      {% for row in covered %}
+      <tr>
+        <td>
+          <a href="{{ row.url }}">{{ row.technique_id }}</a>
+          {% if row.official_name %}<div>{{ row.official_name }}</div>{% endif %}
+          {% if row.revoked %}<span class="badge text-bg-warning">Revoked or deprecated</span>{% endif %}
+          {% if row.modified %}<div class="text-secondary small">MITRE modified {{ row.modified }}</div>{% endif %}
+        </td>
+        <td>
+          {% if row.status == 'gap' %}Open gap
+          {% elif row.status == 'partial' %}Partial
+          {% else %}In place{% endif %}
+        </td>
+        <td>
+          <div class="fw-semibold">{{ row.control }}</div>
+          <div>{{ row.summary }}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="page-card p-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h5 mb-0">Enterprise matrix{% if total %} · {{ total }}{% endif %}</h2>
+    <form class="d-flex gap-2" method="get">
+      <input class="form-control" name="q" value="{{ query_text }}" placeholder="T1110 or a name" aria-label="Search techniques">
+      <button class="btn btn-outline-secondary" type="submit">Search</button>
+    </form>
+  </div>
+  {% if not sync %}
+  <p class="mb-0 text-secondary">Refresh from MITRE to fill this list.</p>
+  {% elif not techniques %}
+  <p class="mb-0">No techniques match this search.</p>
+  {% else %}
+  <table class="table mb-0">
+    <thead><tr><th>ID</th><th>Name</th><th>Tactics</th><th>Modified</th></tr></thead>
+    <tbody>
+      {% for technique in techniques %}
+      <tr{% if technique.revoked or technique.deprecated %} class="text-secondary"{% endif %}>
+        <td><a href="{{ technique.url or 'https://attack.mitre.org/techniques/' + technique.external_id }}">{{ technique.external_id }}</a></td>
+        <td>{{ technique.name }}{% if technique.revoked or technique.deprecated %} · revoked or deprecated{% endif %}</td>
+        <td>{{ technique.tactic_names | join(', ') }}</td>
+        <td>{{ technique.modified }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if pages > 1 %}
+  <div class="d-flex gap-2 mt-3">
+    {% if page > 1 %}
+    <a href="{{ url_for('attack.matrix', q=query_text, page=page-1) }}">Previous</a>
+    {% endif %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    {% if page < pages %}
+    <a href="{{ url_for('attack.matrix', q=query_text, page=page+1) }}">Next</a>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

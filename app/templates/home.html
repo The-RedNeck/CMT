@@ -23,6 +23,9 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('reports.dashboard') }}">Reports</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('tag_number.generate_tags_interface') }}">Tag labels</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('administration.profile') }}">Profile</a>
+    {% if current_user.is_super_admin %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('attack.matrix') }}">ATT&CK coverage</a>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

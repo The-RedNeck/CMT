@@ -85,7 +85,15 @@ A comprehensive Flask-based web application for enterprise asset and configurati
 
    Super admin accounts set up an authenticator app the first time they sign in. Later sign-ins ask for that 6-digit code or a one-time recovery code. Other accounts still sign in with a password only.
 
-   Passwords are stored with scrypt (`N=131072`, `r=8`, `p=1`, about 128 MiB per hash). A successful sign-in rewrites an older hash with those parameters. Recovery codes are 80 random bits, hashed the same way, and each code works once.
+   Passwords are stored with scrypt (`N=131072`, `r=8`, `p=1`, about 128 MiB per hash). A successful sign-in rewrites an older hash with those parameters. Recovery codes are 80 random bits, hashed the same way, and each code works once. New passwords must be at least 12 characters. The local demo account is unchanged so you can still sign in and look around.
+
+   Set `SECRET_KEY` to a long random value before anyone else can reach the app. Set `SESSION_COOKIE_SECURE=1` when the site is served over HTTPS. Set `CMT_DISABLE_DEMO_SEED=1` so a new database does not create `admin` / `admin123`.
+
+### MITRE ATT&CK
+
+Super admins can open **ATT&CK** and refresh Enterprise ATT&CK from MITRE's TAXII 2.1 API (`https://attack-taxii.mitre.org/api/v21/`). That download is the same data shown on https://attack.mitre.org/. The page lists techniques that apply to this application, marks each one in place, partial, or still open, and keeps the rest of the Enterprise matrix so a later refresh shows MITRE's updates.
+
+That page is a coverage check. It does not make CMT fully secure. Open items stay open until the control behind them changes.
 
 ### Subscriptions
 

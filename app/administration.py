@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 from app.models.user import User
+from app.passwords import MIN_PASSWORD_LENGTH
 from app.models.employee import Employee
 from app import db
 from flask_wtf import FlaskForm
@@ -12,7 +13,7 @@ bp = Blueprint('administration', __name__, url_prefix='/administration')
 class CreateUserForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
     email = StringField('Email', validators=[DataRequired(), Email()])
-    password = PasswordField('Password', validators=[DataRequired(), Length(min=6)])
+    password = PasswordField('Password', validators=[DataRequired(), Length(min=MIN_PASSWORD_LENGTH)])
     confirm = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password')])
     is_super_admin = BooleanField('Super Admin')
 
@@ -42,8 +43,8 @@ class EditUserForm(FlaskForm):
             
             # If both are provided, validate them
             if self.password.data and self.confirm.data:
-                if len(self.password.data) < 6:
-                    self.password.errors = ['Password must be at least 6 characters long']
+                if len(self.password.data) < MIN_PASSWORD_LENGTH:
+                    self.password.errors = [f'Password must be at least {MIN_PASSWORD_LENGTH} characters long']
                     return False
                 if self.password.data != self.confirm.data:
                     self.confirm.errors = ['Passwords do not match']
@@ -62,7 +63,7 @@ class ProfileEditForm(FlaskForm):
     
 class ChangePasswordForm(FlaskForm):
     current_password = PasswordField('Current Password', validators=[DataRequired()])
-    new_password = PasswordField('New Password', validators=[DataRequired(), Length(min=6)])
+    new_password = PasswordField('New Password', validators=[DataRequired(), Length(min=MIN_PASSWORD_LENGTH)])
     confirm_password = PasswordField('Confirm New Password', validators=[DataRequired(), EqualTo('new_password', message='Passwords must match')])
 
 @bp.route('/users')

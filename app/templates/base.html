@@ -25,6 +25,7 @@
           <li class="nav-item"><a class="nav-link" href="{{ url_for('reports.dashboard') }}">Reports</a></li>
           {% if current_user.is_super_admin %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('administration.list_users') }}">Users</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('attack.matrix') }}">ATT&CK</a></li>
           {% endif %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('billing.pricing') }}">Billing</a></li>
           {% endif %}
