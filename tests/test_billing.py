@@ -1,6 +1,5 @@
+import json
 from datetime import timedelta
-
-import stripe
 
 from app import db
 from app.billing import ensure_subscription_columns
@@ -102,50 +101,61 @@ def test_fresh_trial_pricing_page(client, admin):
     assert pricing.status_code == 200
 
 
+def _paypal_keys(monkeypatch):
+    monkeypatch.setenv('PAYPAL_CLIENT_ID', 'client')
+    monkeypatch.setenv('PAYPAL_CLIENT_SECRET', 'secret')
+    monkeypatch.setenv('PAYPAL_PLAN_ID', 'P-PLAN')
+    monkeypatch.setenv('PAYPAL_WEBHOOK_ID', 'WH-1')
+
+
 def test_checkout_without_keys_stays_on_pricing(client, admin, monkeypatch):
-    monkeypatch.delenv('STRIPE_SECRET_KEY', raising=False)
-    monkeypatch.delenv('STRIPE_PRICE_ID', raising=False)
+    monkeypatch.delenv('PAYPAL_CLIENT_ID', raising=False)
+    monkeypatch.delenv('PAYPAL_CLIENT_SECRET', raising=False)
+    monkeypatch.delenv('PAYPAL_PLAN_ID', raising=False)
     login(client)
     response = client.post('/billing/checkout', follow_redirects=True)
     assert b'not configured' in response.data
 
 
-def test_checkout_redirects_to_stripe(client, app, admin, monkeypatch):
-    monkeypatch.setenv('STRIPE_SECRET_KEY', 'sk_test_123')
-    monkeypatch.setenv('STRIPE_PRICE_ID', 'price_123')
+def test_checkout_redirects_to_paypal(client, app, admin, monkeypatch):
+    from app import billing
 
-    class Customer:
-        id = 'cus_new'
+    _paypal_keys(monkeypatch)
 
-    class Session:
-        url = 'https://checkout.stripe.test/pay'
+    def fake_request(method, path, payload=None):
+        assert method == 'POST'
+        assert path == '/v1/billing/subscriptions'
+        assert payload['plan_id'] == 'P-PLAN'
+        assert payload['custom_id'] == str(admin)
+        assert payload['subscriber']['email_address'] == 'admin@example.com'
+        return {
+            'id': 'I-SUB123',
+            'status': 'APPROVAL_PENDING',
+            'links': [{'rel': 'approve', 'href': 'https://www.sandbox.paypal.com/agreements/approve?token=1'}],
+        }
 
-    def fake_customer(**kwargs):
-        assert kwargs['email'] == 'admin@example.com'
-        assert kwargs['metadata']['user_id'] == str(admin)
-        return Customer()
-
-    def fake_session(**kwargs):
-        assert kwargs['mode'] == 'subscription'
-        assert kwargs['customer'] == 'cus_new'
-        assert kwargs['line_items'] == [{'price': 'price_123', 'quantity': 1}]
-        return Session()
-
-    monkeypatch.setattr(stripe.Customer, 'create', fake_customer)
-    monkeypatch.setattr(stripe.checkout.Session, 'create', fake_session)
+    monkeypatch.setattr(billing, 'paypal_request', fake_request)
     login(client)
     response = client.post('/billing/checkout')
     assert response.status_code == 303
-    assert response.headers['Location'] == 'https://checkout.stripe.test/pay'
+    assert response.headers['Location'] == 'https://www.sandbox.paypal.com/agreements/approve?token=1'
     with app.app_context():
         user = db.session.get(User, admin)
-        assert user.stripe_customer_id == 'cus_new'
+        assert user.paypal_subscription_id == 'I-SUB123'
+        assert user.subscription_status is None
 
 
-def test_portal_requires_a_customer(client, admin):
+def test_portal_requires_a_subscription(client, app, admin):
     login(client)
     response = client.post('/billing/portal', follow_redirects=True)
     assert b'Subscribe before managing billing' in response.data
+    with app.app_context():
+        user = db.session.get(User, admin)
+        user.paypal_subscription_id = 'I-SUB123'
+        db.session.commit()
+    manage = client.post('/billing/portal')
+    assert manage.status_code == 303
+    assert manage.headers['Location'] == 'https://www.sandbox.paypal.com/myaccount/autopay/'
 
 
 def test_success_page_does_not_grant_access(client, app, admin):
@@ -160,64 +170,100 @@ def test_success_page_does_not_grant_access(client, app, admin):
         assert user.subscription_status is None
 
 
-def test_webhook_sets_status_and_ignores_unknown_customers(client, app, admin, monkeypatch):
-    monkeypatch.setenv('STRIPE_WEBHOOK_SECRET', 'whsec_test')
-    with app.app_context():
-        user = db.session.get(User, admin)
-        user.stripe_customer_id = 'cus_123'
-        db.session.commit()
+def _post_event(client, event):
+    return client.post(
+        '/paypal/webhook',
+        data=json.dumps(event),
+        headers={
+            'Content-Type': 'application/json',
+            'Paypal-Transmission-Id': 'tx',
+            'Paypal-Transmission-Time': '2026-10-16T00:00:00Z',
+            'Paypal-Transmission-Sig': 'sig',
+            'Paypal-Cert-Url': 'https://api.paypal.com/cert.pem',
+            'Paypal-Auth-Algo': 'SHA256withRSA',
+        },
+    )
 
-    def fake_event(payload, signature, secret):
-        assert secret == 'whsec_test'
-        return {
-            'type': 'customer.subscription.updated',
-            'data': {'object': {'customer': 'cus_123', 'status': 'active'}},
-        }
 
-    monkeypatch.setattr(stripe.Webhook, 'construct_event', fake_event)
-    response = client.post('/stripe/webhook', data=b'{}', headers={'Stripe-Signature': 'ok'})
+def test_webhook_sets_status_and_ignores_unknown_accounts(client, app, admin, monkeypatch):
+    from app import billing
+
+    _paypal_keys(monkeypatch)
+    monkeypatch.setattr(billing, 'verify_webhook', lambda event: True)
+    response = _post_event(client, {
+        'event_type': 'BILLING.SUBSCRIPTION.ACTIVATED',
+        'resource': {'id': 'I-SUB123', 'custom_id': str(admin), 'status': 'ACTIVE'},
+    })
     assert response.status_code == 200
     with app.app_context():
-        assert db.session.get(User, admin).subscription_status == 'active'
+        user = db.session.get(User, admin)
+        assert user.subscription_status == 'active'
+        assert user.paypal_subscription_id == 'I-SUB123'
 
-    def unknown_event(payload, signature, secret):
-        return {
-            'type': 'customer.subscription.deleted',
-            'data': {'object': {'customer': 'cus_missing', 'status': 'canceled'}},
-        }
-
-    monkeypatch.setattr(stripe.Webhook, 'construct_event', unknown_event)
-    ignored = client.post('/stripe/webhook', data=b'{}', headers={'Stripe-Signature': 'ok'})
+    ignored = _post_event(client, {
+        'event_type': 'BILLING.SUBSCRIPTION.CANCELLED',
+        'resource': {'id': 'I-MISSING', 'custom_id': '999999', 'status': 'CANCELLED'},
+    })
     assert ignored.status_code == 200
     with app.app_context():
         assert db.session.get(User, admin).subscription_status == 'active'
 
 
+def test_webhook_maps_cancelled_and_ignores_other_events(client, app, admin, monkeypatch):
+    from app import billing
+
+    _paypal_keys(monkeypatch)
+    monkeypatch.setattr(billing, 'verify_webhook', lambda event: True)
+    _expire(app, admin)
+    with app.app_context():
+        user = db.session.get(User, admin)
+        user.paypal_subscription_id = 'I-SUB123'
+        user.subscription_status = 'active'
+        db.session.commit()
+    other = _post_event(client, {
+        'event_type': 'PAYMENT.SALE.COMPLETED',
+        'resource': {'id': 'I-SUB123', 'custom_id': str(admin), 'status': 'CANCELLED'},
+    })
+    assert other.status_code == 200
+    with app.app_context():
+        assert db.session.get(User, admin).subscription_status == 'active'
+    cancelled = _post_event(client, {
+        'event_type': 'BILLING.SUBSCRIPTION.CANCELLED',
+        'resource': {'id': 'I-SUB123', 'status': 'CANCELLED'},
+    })
+    assert cancelled.status_code == 200
+    with app.app_context():
+        user = db.session.get(User, admin)
+        assert user.subscription_status == 'canceled'
+        assert user.has_access is False
+
+
 def test_webhook_rejects_a_bad_signature(client, monkeypatch):
-    monkeypatch.setenv('STRIPE_WEBHOOK_SECRET', 'whsec_test')
-    response = client.post(
-        '/stripe/webhook',
-        data=b'{}',
-        headers={'Stripe-Signature': 't=1,v1=bad'},
-    )
+    from app import billing
+
+    _paypal_keys(monkeypatch)
+    monkeypatch.setattr(billing, 'verify_webhook', lambda event: False)
+    response = _post_event(client, {'event_type': 'BILLING.SUBSCRIPTION.ACTIVATED', 'resource': {}})
     assert response.status_code == 400
     assert response.data == b''
 
 
 def test_webhook_is_exempt_from_csrf(monkeypatch, tmp_path):
     from app import create_app
+    from app import billing
 
-    monkeypatch.setenv('STRIPE_WEBHOOK_SECRET', 'whsec_test')
+    _paypal_keys(monkeypatch)
     application = create_app({
         'TESTING': True,
         'SQLALCHEMY_DATABASE_URI': 'sqlite:///' + str(tmp_path / 'csrf.sqlite'),
         'WTF_CSRF_ENABLED': True,
         'SECRET_KEY': 'test-secret',
     })
+    monkeypatch.setattr(billing, 'verify_webhook', lambda event: False)
     response = application.test_client().post(
-        '/stripe/webhook',
+        '/paypal/webhook',
         data=b'{}',
-        headers={'Stripe-Signature': 't=1,v1=bad'},
+        headers={'Content-Type': 'application/json'},
     )
     assert response.status_code == 400
     assert b'CSRF' not in response.data

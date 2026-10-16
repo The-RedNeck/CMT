@@ -33,6 +33,7 @@ class User(UserMixin, db.Model):
     mfa_recovery_hashes = db.Column(db.Text)
     trial_ends_at = db.Column(db.DateTime, default=trial_end_from_now)
     stripe_customer_id = db.Column(db.String(64))
+    paypal_subscription_id = db.Column(db.String(64))
     subscription_status = db.Column(db.String(32))
 
     @property
