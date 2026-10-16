@@ -5,13 +5,13 @@
   <div class="col-lg-7">
     <div class="page-card p-4">
       <h1 class="h3">Subscription</h1>
-      <p class="text-secondary">Every account includes 90 days free. A card is collected only when you subscribe, after the trial ends.</p>
+      <p class="text-secondary">Every account includes 90 days free. PayPal collects payment only when you subscribe, after the trial ends.</p>
       {% if current_user.is_authenticated %}
         {% if current_user.subscription_status == 'active' %}
         <p>Your subscription is active.</p>
         <form method="post" action="{{ url_for('billing.portal') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-accent" type="submit">Manage billing</button>
+          <button class="btn btn-accent" type="submit">Manage in PayPal</button>
         </form>
         {% elif current_user.in_trial %}
         <p>Your free trial runs until <strong>{{ current_user.trial_ends_at.strftime('%B %d, %Y') }}</strong>.</p>
@@ -25,7 +25,7 @@
             <button class="btn btn-accent" type="submit">Subscribe{% if price_label %} — {{ price_label }}{% endif %}</button>
           </form>
           {% else %}
-          <p class="mb-0">Checkout is off until <code>STRIPE_SECRET_KEY</code> and <code>STRIPE_PRICE_ID</code> are set.</p>
+          <p class="mb-0">Checkout is off until <code>PAYPAL_CLIENT_ID</code>, <code>PAYPAL_CLIENT_SECRET</code>, and <code>PAYPAL_PLAN_ID</code> are set.</p>
           {% endif %}
         {% endif %}
       {% else %}
